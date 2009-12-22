@@ -58,7 +58,7 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	private static final int DEFAULT_SO_PREF_CONN_TIME = 2;
 	
 	private static final boolean DEFAULT_IS_SHARED = true;
-	private static final boolean DEFAULT_IS_RELIABLE = false;
+	private static final boolean DEFAULT_IS_RELIABLE = true;
 	private static final boolean DEFAULT_IS_PIPELINE = false;
 	
 	// ------------------------------------------------------------------------
