@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -14,30 +14,21 @@
  *   limitations under the License.
  */
 
-package org.jredis.connector;
-
-import org.jredis.ClientRuntimeException;
-import org.jredis.JRedis;
-import org.jredis._specification;
-
+package org.jredis;
 
 /**
- * This connection will should be thrown if users issue any calls on 
- * the {@link JRedis} interface after a call to either {@link JRedis#quit()}
- * or {@link JRedis#shutdown()}
- * 
- * [TODO: document me!]
+ * An entry in a Redis "sorted set" and returned by a subset Z* commands.  
  *
  * @author  Joubin Houshyar (alphazero@sensesay.net)
- * @version alpha.0, 04/02/09
+ * @version alpha.0, Mar 20, 2010
  * @since   alpha.0
- *
+ * 
  */
-public class NotConnectedException extends ClientRuntimeException {
-	/**  */
-	private static final long	serialVersionUID	= _specification.Version.major;
 
-	public NotConnectedException (String msg) {
-		super (msg);
-	}
+public interface ZSetEntry{
+	/**  @return the value of this entry in a Redis sorted set */
+	byte[] getValue();
+	
+	/** @return the score associated with the value */
+	double getScore();
 }

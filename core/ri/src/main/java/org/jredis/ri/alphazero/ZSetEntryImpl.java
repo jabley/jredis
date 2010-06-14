@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -14,30 +14,28 @@
  *   limitations under the License.
  */
 
-package org.jredis.connector;
+package org.jredis.ri.alphazero;
 
-import org.jredis.ClientRuntimeException;
-import org.jredis.JRedis;
-import org.jredis._specification;
-
+import org.jredis.ZSetEntry;
+import org.jredis.ri.alphazero.support.DefaultCodec;
 
 /**
- * This connection will should be thrown if users issue any calls on 
- * the {@link JRedis} interface after a call to either {@link JRedis#quit()}
- * or {@link JRedis#shutdown()}
- * 
  * [TODO: document me!]
  *
  * @author  Joubin Houshyar (alphazero@sensesay.net)
- * @version alpha.0, 04/02/09
+ * @version alpha.0, Mar 20, 2010
  * @since   alpha.0
- *
+ * 
  */
-public class NotConnectedException extends ClientRuntimeException {
-	/**  */
-	private static final long	serialVersionUID	= _specification.Version.major;
 
-	public NotConnectedException (String msg) {
-		super (msg);
-	}
+class ZSetEntryImpl extends Pair<byte[], byte[]> implements ZSetEntry {
+
+    public ZSetEntryImpl (byte[] valueBytes, byte[] scoreBytes) {
+    	super(valueBytes, scoreBytes);
+    }
+	/* (non-Javadoc) @see org.jredis.ZSetEntry#getScore() */
+	public double getScore () { return DefaultCodec.toDouble(t2); }
+
+	/* (non-Javadoc) @see org.jredis.ZSetEntry#getValue() */
+	public byte[] getValue () { return t1;}
 }

@@ -14,30 +14,24 @@
  *   limitations under the License.
  */
 
-package org.jredis.connector;
-
-import org.jredis.ClientRuntimeException;
-import org.jredis.JRedis;
-import org.jredis._specification;
-
+package org.jredis;
 
 /**
- * This connection will should be thrown if users issue any calls on 
- * the {@link JRedis} interface after a call to either {@link JRedis#quit()}
- * or {@link JRedis#shutdown()}
- * 
- * [TODO: document me!]
- *
+ * Internal Redis object encoding schemes.
+ *   
+ * @see ObjectInfo#getEncoding()
  * @author  Joubin Houshyar (alphazero@sensesay.net)
- * @version alpha.0, 04/02/09
- * @since   alpha.0
- *
+ * @version alpha.0, Mar 17, 2010
+ * @since   alpha.0 | Redis 1.3.5
+ * 
  */
-public class NotConnectedException extends ClientRuntimeException {
-	/**  */
-	private static final long	serialVersionUID	= _specification.Version.major;
-
-	public NotConnectedException (String msg) {
-		super (msg);
+public enum ObjectEncoding {
+		/** Redis 'raw'  */
+		RAW (),
+		/** Redis 'int'  */
+		INT (),
+		/** Redis 'zipmap'  */
+		ZIPMAP(),
+		/** Redis 'hashtable'  */
+		HASHTABLE
 	}
-}

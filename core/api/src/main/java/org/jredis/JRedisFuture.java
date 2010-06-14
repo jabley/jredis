@@ -165,7 +165,7 @@ public interface JRedisFuture {
 	 * @param moreKeys
 	 * @return
 	 */
-	public Future<List<byte[]>> mget(String key, String...moreKeys);
+	public Future<List<byte[]>> mget(String ... keys);
 
 	/**
 	 * @Redis MSET
@@ -224,6 +224,27 @@ public interface JRedisFuture {
 	public Future<Long> decrby (String key, int delta);
 
 	/**
+	 * @Redis SUBSTR
+	 * @param listkey
+	 * @param from
+	 * @param to
+	 * @return
+	 */
+	public Future<byte[]> substr (String listkey, long from, long to); 
+	
+	/**
+	 * @Redis APPEND
+	 * @param key
+	 * @param value
+	 * @return the length (byte count) of appended key.
+	 */
+	public Future<Long> append (String key, byte[] value);
+	public Future<Long> append (String key, String stringValue);
+	public Future<Long> append (String key, Number numberValue);
+	public <T extends Serializable> 
+		   Future<Long> append (String key, T object);
+
+	/**
 	 * @Redis EXISTS
 	 * @param key
 	 * @return
@@ -232,10 +253,10 @@ public interface JRedisFuture {
 
 	/**
 	 * @Redis DEL
-	 * @param key
-	 * @return
+	 * @param keys one or more, non-null, non-zero-length, keys to be deleted
+	 * @return Future<Long> of number keys actually deleted.
 	 */
-	public Future<Boolean> del (String key);
+	public Future<Long> del (String ... keys);
 
 	/**
 	 * @Redis TYPE
@@ -298,6 +319,17 @@ public interface JRedisFuture {
 	 * @return
 	 */
 	public Future<Boolean> expire (String key, int ttlseconds); 
+	
+	/**
+	 * @Redis EXPIREAT
+	 * @param key
+	 * @param UNIX epoch-time in <b>milliseconds</b>.  Note that Redis expects epochtime
+	 * in seconds. Implementations are responsible for converting to seconds.
+	 * method   
+	 * @return
+	 * @see {@link System#currentTimeMillis()}
+	 */
+	public Future<Boolean> expireat (String key, long epochtimeMillisecs); 
 	
 	/**
 	 * @Redis TTL
@@ -530,6 +562,12 @@ public interface JRedisFuture {
 	 */
 	public Future<byte[]> srandmember (String setkey);
 
+	/**
+	 * @Redis SPOP
+	 * @param setkey
+	 * @return
+	 */
+	public Future<byte[]> spop (String setkey);
 	// ------------------------------------------------------------------------
 	// Commands operating on sorted sets
 	// ------------------------------------------------------------------------
@@ -579,6 +617,30 @@ public interface JRedisFuture {
 		Future<Double> zscore (String setkey, T object);
 
 	/**
+	 * @Redis ZRANK
+	 * @param setkey
+	 * @param member
+	 * @return
+	 */
+	public Future<Long> zrank (String setkey, byte[] member);
+	public Future<Long> zrank (String setkey, String stringValue);
+	public Future<Long> zrank (String setkey, Number numberValue);
+	public <T extends Serializable> 
+		Future<Long> zrank (String setkey, T object);
+
+	/**
+	 * @Redis ZREVRANK
+	 * @param setkey
+	 * @param member
+	 * @return
+	 */
+	public Future<Long> zrevrank (String setkey, byte[] member);
+	public Future<Long> zrevrank (String setkey, String stringValue);
+	public Future<Long> zrevrank (String setkey, Number numberValue);
+	public <T extends Serializable> 
+		Future<Long> zrevrank (String setkey, T object);
+
+	/**
 	 * @Redis ZRANGE
 	 * @param setkey
 	 * @param from
@@ -597,6 +659,36 @@ public interface JRedisFuture {
 	public Future<List<byte[]>> zrevrange (String setkey, long from, long to); 
 
 	/**
+	 * Equivalent to {@link JRedis#zrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Unlike the general ZRANGE command that only returns the values, this method returns both
+	 * values and associated scores for the specified range.
+	 * 
+	 * @Redis ZRANGE ... WITHSCORES
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return
+	 * @see JRedis#zrange(String, long, long)
+	 * @see ZSetEntry
+	 */
+	public Future<List<ZSetEntry>> zrangeSubset (String setkey, long from, long to); 
+
+	/**
+	 * Equivalent to {@link JRedis#zrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Unlike the general ZRANGE command that only returns the values, this method returns both
+	 * values and associated scores for the specified range.
+	 * 
+	 * @Redis ZREVRANGE ... WITHSCORES
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return
+	 * @see JRedis#zrevrange(String, long, long)
+	 * @see ZSetEntry
+	 */
+	public Future<List<ZSetEntry>> zrevrangeSubset (String setkey, long from, long to); 
+
+	/**
 	 * @Redis ZINCRBY
 	 * @param setkey
 	 * @param score
@@ -610,6 +702,157 @@ public interface JRedisFuture {
 	public <T extends Serializable> 
 		Future<Double> zincrby (String setkey, double score, T object);
 
+	/**
+	 * @Redis ZRANGEBYSCORE
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return
+	 */
+	public Future<List<byte[]>> zrangebyscore (String setkey, double minScore, double maxScore); 
+
+	/**
+	 * @Redis ZREMRANGEBYSCORE
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return number of removed elements
+	 */
+	public Future<Long> zremrangebyscore (String setkey, double minScore, double maxScore); 
+
+	/**
+	 * @Redis ZCOUNT
+	 * @param setkey
+	 * @param minScore
+	 * @param maxScore
+	 * @return number of removed elements
+	 */
+	public Future<Long> zcount (String setkey, double minScore, double maxScore); 
+
+	/**
+	 * @Redis ZREMRANGEBYRANK
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return number of removed elements
+	 */
+	public Future<Long> zremrangebyrank (String setkey, double minRank, double maxRank); 
+	
+	
+	// ------------------------------------------------------------------------
+	// Commands operating on hashes
+	// ------------------------------------------------------------------------
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param value
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public Future<Boolean> hset(String key, String field, byte[] value);
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param string
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public Future<Boolean> hset(String key, String field, String string);
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param number
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public Future<Boolean> hset(String key, String field, Number number);
+	
+	/**
+	 * @Redis HSET
+	 * @param <T>
+	 * @param key
+	 * @param field
+	 * @param object
+	 * @return
+	 */
+	@Redis(versions="1.3.4")
+	public <T extends Serializable> 
+		Future<Boolean> hset(String key, String field, T object);
+	
+	/**
+	 * @Redis HGET
+	 * @param key
+	 * @param field
+	 * @return
+	 */
+	@Redis(versions="1.3.4")
+	public Future<byte[]> hget(String key, String field);
+	
+	/**
+	 * 
+	 * @Redis HEXISTS
+	 * @param key
+	 * @param field
+	 * @return true if the spec'd field exists for the spec'd (hash type) key
+	 */
+	@Redis(versions="1.3.5")
+	public Future<Boolean> hexists(String key, String field);
+	
+	/**
+	 * 
+	 * @Redis HDEL
+	 * @param key
+	 * @param field
+	 * @return true if the spec'd field exists for the spec'd (hash type) key
+	 */
+	@Redis(versions="1.3.5")
+	public Future<Boolean> hdel(String key, String field);
+	
+	/**
+	 * 
+	 * @Redis HLEN
+	 * @param key
+	 * @param field
+	 * @return # of fields/entries for the given hash type key
+	 */
+	@Redis(versions="1.3.5")
+	public Future<Long> hlen(String key);
+	
+	/**
+	 * 
+	 * @Redis HKEYS
+	 * @param key
+	 * @return list of keys in the given hashtable.
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public Future<List<String>> hkeys(String key);
+	
+	/**
+	 * 
+	 * @Redis HVALS
+	 * @param key
+	 * @return list of values in the given hashtable.
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public Future<List<byte[]>> hvals(String key);
+	
+	/**
+	 * 
+	 * @Redis HGETALL
+	 * @param key
+	 * @return the given hash as a Map<String, byte[]>
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public Future<Map<String, byte[]>> hgetall(String key);
 	
 	// ------------------------------------------------------------------------
 	// Multiple databases handling commands
@@ -684,6 +927,12 @@ public interface JRedisFuture {
 	public Future<ResponseStatus> bgsave ();
 
 	/**
+	 * @Redis BGREWRITEAOF
+	 * @return ack message.  
+	 */
+	public Future<String> bgrewriteaof ();
+
+	/**
 	 * @Redis LASTSAVE
 	 * @return
 	 */
@@ -699,4 +948,38 @@ public interface JRedisFuture {
 	 * @return
 	 */
 	public Future<Map<String, String>>	info () ;
+
+	/**
+	 * @Redis SLAVEOF
+	 * @param host ip address 
+	 * @param port
+	 */
+	public Future<ResponseStatus>  slaveof(String host, int port);
+	
+	/**
+	 * Convenience method.  Turns off replication.
+	 * @Redis SLAVEOF "no one"
+	 */
+	public Future<ResponseStatus>  slaveofnone();
+	// ------------------------------------------------------------------------
+	// Diagnostics commands
+	// ------------------------------------------------------------------------
+	
+	/**
+	 * @Redis ECHO
+	 * @param msg
+	 * @return
+	 */
+	public Future<byte[]> echo (byte[] msg);
+	public Future<byte[]> echo (String msg);
+	public Future<byte[]> echo (Number msg);
+	public <T extends Serializable> 
+		Future<byte[]> echo (T msg);
+		
+	/**
+	 * @Redis DEBUG OBJECT <key>
+	 * @param key
+	 * @return
+	 */
+	public Future<ObjectInfo> debug (String key);
 }

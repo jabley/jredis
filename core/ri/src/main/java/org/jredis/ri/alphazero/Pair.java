@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -14,30 +14,22 @@
  *   limitations under the License.
  */
 
-package org.jredis.connector;
-
-import org.jredis.ClientRuntimeException;
-import org.jredis.JRedis;
-import org.jredis._specification;
-
+package org.jredis.ri.alphazero;
 
 /**
- * This connection will should be thrown if users issue any calls on 
- * the {@link JRedis} interface after a call to either {@link JRedis#quit()}
- * or {@link JRedis#shutdown()}
- * 
- * [TODO: document me!]
- *
+ * Generic immutable 2-tuple data struct.
+ *  
  * @author  Joubin Houshyar (alphazero@sensesay.net)
- * @version alpha.0, 04/02/09
+ * @version alpha.0, Mar 20, 2010
  * @since   alpha.0
- *
+ * 
  */
-public class NotConnectedException extends ClientRuntimeException {
-	/**  */
-	private static final long	serialVersionUID	= _specification.Version.major;
 
-	public NotConnectedException (String msg) {
-		super (msg);
+class Pair<T1, T2> {
+	public final T1 t1;
+	public final T2 t2;
+	public Pair(T1 t1, T2 t2){
+		this.t1 = t1;
+		this.t2 = t2;
 	}
 }

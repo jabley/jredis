@@ -161,7 +161,7 @@ public interface JRedis {
 	 * @return
 	 * @throws RedisException
 	 */
-	public List<byte[]> mget(String key, String...moreKeys) throws RedisException;
+	public List<byte[]> mget(String...keys) throws RedisException;
 
 	/**
 	 * @Redis MSET
@@ -224,6 +224,34 @@ public interface JRedis {
 	public long decrby (String key, int delta) throws RedisException;
 
 	/**
+	 * @Redis SUBSTR
+	 * @param key
+	 * @param from
+	 * @param to
+	 * @return
+	 * @throws RedisException
+	 */
+	public byte[] substr (String key, long from, long to) throws RedisException;
+	
+	
+	/**
+	 * @Redis APPEND
+	 * @param key
+	 * @param value
+	 * @return length (byte count) of appended value
+	 * @throws RedisException
+	 */
+	public long append (String key, byte[] value) throws RedisException;
+	public long append (String key, String stringValue) throws RedisException;
+	public long append (String key, Number numberValue) throws RedisException;
+	public <T extends Serializable> 
+		   long append (String key, T object) throws RedisException;
+
+	// ------------------------------------------------------------------------
+	// "Commands operating on the key space"
+	// ------------------------------------------------------------------------
+	
+	/**
 	 * @Redis EXISTS
 	 * @param key
 	 * @return
@@ -233,11 +261,12 @@ public interface JRedis {
 
 	/**
 	 * @Redis DEL
-	 * @param key
-	 * @return
+	 * @param keys one or more non-null, non-zero-length, keys to be deleted
+	 * @return number of keys actually deleted
 	 * @throws RedisException
 	 */
-	public boolean del (String key) throws RedisException;
+//	public boolean del (String key) throws RedisException;
+	public long del (String ... keys) throws RedisException;
 
 	/**
 	 * @Redis TYPE
@@ -247,10 +276,6 @@ public interface JRedis {
 	 */
 	public RedisType type (String key) throws RedisException;
 	
-	
-	// ------------------------------------------------------------------------
-	// "Commands operating on the key space"
-	// ------------------------------------------------------------------------
 	
 	/**
 	 * @Redis KEYS
@@ -308,6 +333,19 @@ public interface JRedis {
 	 * @throws RedisException
 	 */
 	public boolean expire (String key, int ttlseconds) throws RedisException; 
+	
+	/**
+	 * 
+	 * @Redis EXPIREAT
+	 * @param key
+	 * @param UNIX epoch-time in <b>milliseconds</b>.  Note that Redis expects epochtime
+	 * in seconds. Implementations are responsible for converting to seconds.
+	 * method   
+	 * @return
+	 * @throws RedisException
+	 * @see {@link System#currentTimeMillis()}
+	 */
+	public boolean expireat (String key, long epochtimeMillisecs) throws RedisException; 
 	
 	/**
 	 * @Redis TTL
@@ -558,8 +596,21 @@ public interface JRedis {
 	 */
 	public List<byte[]> smembers (String setkey) throws RedisException;
 	
+	/**
+	 * @Redis SRANDMEMBER
+	 * @param setkey
+	 * @return
+	 * @throws RedisException
+	 */
 	public byte[] srandmember (String setkey) throws RedisException;
 	
+	/**
+	 * @Redis SPOP
+	 * @param setkey
+	 * @return
+	 * @throws RedisException
+	 */
+	public byte[] spop (String setkey) throws RedisException;
 	// ------------------------------------------------------------------------
 	// Commands operating on sets
 	// ------------------------------------------------------------------------
@@ -614,6 +665,32 @@ public interface JRedis {
 		Double zscore (String setkey, T object) throws RedisException;
 
 	/**
+	 * @Redis ZRANK
+	 * @param setkey
+	 * @param member
+	 * @return
+	 * @throws RedisException
+	 */
+	public long zrank (String setkey, byte[] member) throws RedisException;
+	public long zrank (String setkey, String stringValue) throws RedisException;
+	public long zrank (String setkey, Number numberValue) throws RedisException;
+	public <T extends Serializable> 
+		long zrank (String setkey, T object) throws RedisException;
+
+	/**
+	 * @Redis ZREVRANK
+	 * @param setkey
+	 * @param member
+	 * @return
+	 * @throws RedisException
+	 */
+	public long zrevrank (String setkey, byte[] member) throws RedisException;
+	public long zrevrank (String setkey, String stringValue) throws RedisException;
+	public long zrevrank (String setkey, Number numberValue) throws RedisException;
+	public <T extends Serializable> 
+		long zrevrank (String setkey, T object) throws RedisException;
+
+	/**
 	 * @Redis ZRANGE
 	 * @param setkey
 	 * @param from
@@ -634,14 +711,66 @@ public interface JRedis {
 	public List<byte[]> zrevrange (String setkey, long from, long to) throws RedisException; 
 
 	/**
-	 * @Redis ZRANGE
+	 * Equivalent to {@link JRedis#zrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Unlike the general ZRANGE command that only returns the values, this method returns both
+	 * values and associated scores for the specified range.
+	 *  
+	 * @Redis ZRANGE ... WITHSCORES
 	 * @param setkey
 	 * @param from
 	 * @param to
+	 * @return the subset of the specified set 
+	 * @throws RedisException
+	 * @see JRedis#zrange(String, long, long)
+	 * @see ZSetEntry
+	 */
+	public List<ZSetEntry> zrangeSubset (String setkey, long from, long to) throws RedisException; 
+
+	/**
+	 * Equivalent to {@link JRedis#zrevrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Unlike the general ZREVRANGE command that only returns the values, this method returns both
+	 * values and associated scores for the specified range.
+	 *  
+	 * @Redis ZREVRANGE ... WITHSCORES
+	 * @param setkey
+	 * @param from
+	 * @param to
+	 * @return the subset of the specified set 
+	 * @throws RedisException
+	 * @see JRedis#zrevrange(String, long, long)
+	 * @see ZSetEntry
+	 */
+	public List<ZSetEntry> zrevrangeSubset (String setkey, long from, long to) throws RedisException; 
+
+	/**
+	 * @Redis ZRANGE
+	 * @param setkey
+	 * @param minScore
+	 * @param maxScore
 	 * @return
 	 * @throws RedisException
 	 */
 	public List<byte[]> zrangebyscore (String setkey, double minScore, double maxScore) throws RedisException; 
+
+	/**
+	 * @Redis ZREMRANGEBYSCORE
+	 * @param setkey
+	 * @param minScore
+	 * @param maxScore
+	 * @return number of removed elements
+	 * @throws RedisException
+	 */
+	public long zremrangebyscore (String setkey, double minScore, double maxScore) throws RedisException; 
+
+	/**
+	 * @Redis ZREMRANGEBYRANK
+	 * @param setkey
+	 * @param minRank
+	 * @param maxRank
+	 * @return number of removed elements
+	 * @throws RedisException
+	 */
+	public long zremrangebyrank (String setkey, double minRank, double maxRank) throws RedisException; 
 
 	/**
 	 * @Redis ZINCRBY
@@ -658,6 +787,149 @@ public interface JRedis {
 	public <T extends Serializable> 
 		Double zincrby (String setkey, double score, T object) throws RedisException;
 
+	/**
+	 * @Redis ZCOUNT
+	 * @param setkey
+	 * @param minScore
+	 * @param maxScore
+	 * @return count of set members with score in the given range.
+	 * @throws RedisException
+	 */
+	public long zcount (String setkey, double minScore, double maxScore) throws RedisException; 
+	// ------------------------------------------------------------------------
+	// Commands operating on hashes
+	// ------------------------------------------------------------------------
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param value
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public boolean hset(String key, String field, byte[] value)  throws RedisException;
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param string
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public boolean hset(String key, String field, String string)  throws RedisException;
+	
+	/**
+	 * @Redis HSET
+	 * @param key
+	 * @param field
+	 * @param number
+	 * @return
+	 */
+	@Redis(versions="1.3.n")
+	public boolean hset(String key, String field, Number number)  throws RedisException;
+	
+	/**
+	 * @Redis HSET
+	 * @param <T>
+	 * @param key
+	 * @param field
+	 * @param object
+	 * @return
+	 */
+	@Redis(versions="1.3.4")
+	public <T extends Serializable> 
+		boolean hset(String key, String field, T object)  throws RedisException;
+	
+	/**
+	 * @Redis HGET
+	 * @param key
+	 * @param field
+	 * @return
+	 */
+	@Redis(versions="1.3.4")
+	public byte[] hget(String key, String field)  throws RedisException;
+	
+	
+	/**
+	 * 
+	 * @Redis HEXISTS
+	 * @param key
+	 * @param field
+	 * @return true if the spec'd field exists for the spec'd (hash type) key
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public boolean hexists(String key, String field)  throws RedisException;
+	
+	/**
+	 * 
+	 * @Redis HDEL
+	 * @param key
+	 * @param field
+	 * @return true if the spec'd field exists for the spec'd (hash type) key
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public boolean hdel(String key, String field)  throws RedisException;
+	
+	/**
+	 * 
+	 * @Redis HLEN
+	 * @param key
+	 * @return # of fields/entries in the given hashtable.
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public long hlen(String key)  throws RedisException;
+	
+	/**
+	 * 
+	 * @Redis HKEYS
+	 * @param key
+	 * @return list of keys in the given hashtable.
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public List<String> hkeys(String key)  throws RedisException;
+	
+	/**
+	 * 
+	 * @Redis HVALS
+	 * @param key
+	 * @return list of values in the given hashtable.
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public List<byte[]> hvals(String key)  throws RedisException;
+	
+	/**
+	 * 
+	 * @Redis HGETALL
+	 * @param key
+	 * @return the given hash as a Map<String, byte[]>
+	 * @throws RedisException
+	 */
+	@Redis(versions="1.3.n")
+	public Map<String, byte[]> hgetall(String key)  throws RedisException;
+	
+//	// ------------------------------------------------------------------------
+//	// Transactional commands
+//	// ------------------------------------------------------------------------
+//	/**
+//	 * one option is to return a subclass of JRedis (e.g. JRedisCommandSequence)
+//	 * and have that interface declare discard and multi.  Benefit is being able
+//	 * to associate state with the transaction.
+//	 * @throws RedisException
+//	 */
+//	@Redis(versions="1.3")
+//	public void multi() throws RedisException;
+//	/**
+//	 * @throws RedisException
+//	 */
+//	public void discard () throws RedisException;
+	
 	// ------------------------------------------------------------------------
 	// Multiple databases handling commands
 	// ------------------------------------------------------------------------
@@ -745,6 +1017,13 @@ public interface JRedis {
 	public void bgsave () throws RedisException;
 
 	/**
+	 * @Redis BGREWRITEAOF
+	 * @return ack message.  
+	 * @throws RedisException
+	 */
+	public String bgrewriteaof () throws RedisException;
+
+	/**
 	 * @Redis LASTSAVE
 	 * @return
 	 * @throws RedisException
@@ -764,4 +1043,42 @@ public interface JRedis {
 	 * @throws RedisException
 	 */
 	public Map<String, String>	info ()  throws RedisException;
+	
+	/**
+	 * @Redis SLAVEOF
+	 * @param host ip address 
+	 * @param port
+	 */
+	public void slaveof(String host, int port) throws RedisException;
+	
+	/**
+	 * Convenience method.  Turns off replication.
+	 * @Redis SLAVEOF "no one"
+	 */
+	public void slaveofnone() throws RedisException;
+	
+	// ------------------------------------------------------------------------
+	// Diagnostics commands
+	// ------------------------------------------------------------------------
+	
+	/**
+	 * @Redis ECHO
+	 * @param msg
+	 * @return
+	 * @throws RedisException
+	 */
+	public byte[] echo (byte[] msg) throws RedisException;
+	public byte[] echo (String msg) throws RedisException;
+	public byte[] echo (Number msg) throws RedisException;
+	public <T extends Serializable> 
+		byte[] echo (T msg) throws RedisException;
+	
+	/**
+	 * @Redis DEBUG OBJECT <key>
+	 * @param key
+	 * @return
+	 * @throws RedisException
+	 * @see {@link ObjectInfo}
+	 */
+	public ObjectInfo debug (String key) throws RedisException;
 }

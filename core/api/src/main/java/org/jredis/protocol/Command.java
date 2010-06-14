@@ -32,7 +32,7 @@ import org.jredis.Redis;
  * @since   alpha.0
  * 
  */
-@Redis(versions="1.1")
+@Redis(versions="1.3")
 public enum Command {
 	
 	// security
@@ -55,16 +55,19 @@ public enum Command {
 	DECR		(RequestType.KEY, 			ResponseType.NUMBER), 
 	DECRBY		(RequestType.KEY_NUM,		ResponseType.NUMBER),  
 	EXISTS		(RequestType.KEY, 			ResponseType.BOOLEAN), 
-	DEL			(RequestType.KEY, 			ResponseType.BOOLEAN), 
+	DEL			(RequestType.MULTI_KEY, 	ResponseType.NUMBER), 
 	TYPE		(RequestType.KEY, 			ResponseType.STRING),
+	SUBSTR		(RequestType.KEY_NUM_NUM,	ResponseType.BULK),
+	APPEND		(RequestType.KEY_VALUE, 	ResponseType.NUMBER),
 
 	// "Commands operating on the key space"
-	KEYS		(RequestType.KEY, 			ResponseType.BULK), 
+	KEYS		(RequestType.KEY, 			ResponseType.MULTI_BULK), 
 	RANDOMKEY	(RequestType.NO_ARG,		ResponseType.STRING),
 	RENAME		(RequestType.KEY_KEY, 		ResponseType.STATUS), 
 	RENAMENX	(RequestType.KEY_KEY, 		ResponseType.BOOLEAN), 
 	DBSIZE		(RequestType.NO_ARG,		ResponseType.NUMBER),
 	EXPIRE		(RequestType.KEY_NUM,		ResponseType.BOOLEAN), 
+	EXPIREAT	(RequestType.KEY_NUM,		ResponseType.BOOLEAN), 
 	TTL			(RequestType.KEY,			ResponseType.NUMBER),
 	
 	// Commands operating on lists
@@ -78,7 +81,7 @@ public enum Command {
 	LREM		(RequestType.KEY_CNT_VALUE,	ResponseType.NUMBER),
 	LPOP		(RequestType.KEY,			ResponseType.BULK), 
 	RPOP		(RequestType.KEY,			ResponseType.BULK),
-	RPOPLPUSH	(RequestType.KEY_VALUE,		ResponseType.BULK),
+	RPOPLPUSH	(RequestType.KEY_KEY,		ResponseType.BULK),
 	
 	// Commands operating on sets
 	SADD		(RequestType.KEY_VALUE,		ResponseType.BOOLEAN), 
@@ -94,17 +97,38 @@ public enum Command {
 	SMEMBERS	(RequestType.KEY,			ResponseType.MULTI_BULK), 
 	SMOVE		(RequestType.KEY_KEY_VALUE,	ResponseType.BOOLEAN),
 	SRANDMEMBER (RequestType.KEY,  			ResponseType.BULK),
-	
+	SPOP     	(RequestType.KEY,        	ResponseType.BULK),
 	// Commands operating on sorted sets
 	ZADD		(RequestType.KEY_IDX_VALUE,	ResponseType.BOOLEAN), 
 	ZREM		(RequestType.KEY_VALUE,		ResponseType.BOOLEAN),
 	ZCARD		(RequestType.KEY,			ResponseType.NUMBER), 
 	ZSCORE		(RequestType.KEY_VALUE,		ResponseType.BULK),
-	ZRANGE		(RequestType.KEY_NUM_NUM,	ResponseType.MULTI_BULK),
-	ZREVRANGE	(RequestType.KEY_NUM_NUM,	ResponseType.MULTI_BULK),
-	ZRANGEBYSCORE	(RequestType.KEY_NUM_NUM,	ResponseType.MULTI_BULK),
+	ZRANK		(RequestType.KEY_VALUE,		ResponseType.NUMBER),
+	ZREVRANK	(RequestType.KEY_VALUE,		ResponseType.NUMBER),
+	ZRANGE			(RequestType.KEY_NUM_NUM,	ResponseType.MULTI_BULK),
+	ZRANGE$OPTS		(RequestType.KEY_NUM_NUM_OPTS,	ResponseType.MULTI_BULK),
+	ZREVRANGE		(RequestType.KEY_NUM_NUM,		ResponseType.MULTI_BULK),
+	ZREVRANGE$OPTS	(RequestType.KEY_NUM_NUM_OPTS,	ResponseType.MULTI_BULK),
 	ZINCRBY		(RequestType.KEY_IDX_VALUE, ResponseType.BULK),
+	ZRANGEBYSCORE		(RequestType.KEY_NUM_NUM,	ResponseType.MULTI_BULK),
+	ZREMRANGEBYSCORE	(RequestType.KEY_NUM_NUM,	ResponseType.NUMBER),
+	ZREMRANGEBYRANK	(RequestType.KEY_NUM_NUM,	ResponseType.NUMBER),
+	ZCOUNT		(RequestType.KEY_NUM_NUM, ResponseType.NUMBER),
 		
+	// Commands operating on hashes
+	HSET 		(RequestType.KEY_KEY_VALUE, ResponseType.BOOLEAN),
+	HGET 		(RequestType.KEY_VALUE, 	ResponseType.BULK),
+	HEXISTS 	(RequestType.KEY_VALUE, 	ResponseType.BOOLEAN),
+	HDEL 		(RequestType.KEY_VALUE, 	ResponseType.BOOLEAN),
+	HLEN 		(RequestType.KEY, 			ResponseType.NUMBER),
+	HKEYS 		(RequestType.KEY, 			ResponseType.MULTI_BULK),
+	HVALS 		(RequestType.KEY, 			ResponseType.MULTI_BULK),
+	HGETALL 	(RequestType.KEY, 			ResponseType.MULTI_BULK),
+	
+	// transactional commands
+	MULTI		(RequestType.NO_ARG, 		ResponseType.STATUS),
+	EXEC		(RequestType.NO_ARG, 		ResponseType.STATUS), // NEED NEW RESPONSE TYPE
+	DISCARD		(RequestType.NO_ARG, 		ResponseType.STATUS),
 	
 	// "Multiple databases handling commands"
 	SELECT		(RequestType.KEY,			ResponseType.STATUS),
@@ -118,17 +142,23 @@ public enum Command {
 	// Persistence control commands
 	SAVE		(RequestType.NO_ARG,		ResponseType.STATUS), 
 	BGSAVE		(RequestType.NO_ARG,		ResponseType.STATUS), 
+	BGREWRITEAOF(RequestType.NO_ARG,		ResponseType.STRING), 
 	LASTSAVE	(RequestType.NO_ARG,		ResponseType.NUMBER),
 	SHUTDOWN	(RequestType.NO_ARG, 		ResponseType.VIRTUAL),
 	
+	// diagnostics commands
+	ECHO    	(RequestType.VALUE,     	ResponseType.BULK),
+	DEBUG		(RequestType.KEY_KEY, 		ResponseType.STRING), 
+	
 	// Remote server control commands
 	INFO		(RequestType.NO_ARG, 		ResponseType.BULK), 
-	MONITOR	    (RequestType.NO_ARG, 		ResponseType.VIRTUAL);
+	MONITOR	    (RequestType.NO_ARG, 		ResponseType.VIRTUAL), 
+	SLAVEOF		(RequestType.KEY_KEY, 		ResponseType.STATUS);
 	
 	/** semantic sugar */
 	public final String code;
 	public final byte[] bytes;
-	public final int length;
+//	public final int length;
 //	public final int arg_cnt;
 	public final RequestType requestType;
 	public final ResponseType responseType;
@@ -141,9 +171,14 @@ public enum Command {
 	 * @param respType the {@link ResponseType} of the Command
 	 */
 	Command (RequestType reqType, ResponseType respType) { 
-		this.code = this.name(); 
-		this.bytes = code.getBytes();
-		this.length = code.length();
+		this.code = this.name();
+		
+		if(code.indexOf("$OPT") > 0) 
+			this.bytes = code.substring(0, code.indexOf('$')).getBytes();
+		else
+			this.bytes = code.getBytes();
+		
+//		this.length = code.length();
 		this.requestType = reqType;
 		this.responseType = respType;
 //		this.arg_cnt = -1; // to raise exception -- make sure we don't miss any
@@ -153,6 +188,30 @@ public enum Command {
 	// Inner Types
 	// ------------------------------------------------------------------------
 
+	/**
+	 * Redis Command Options and modifiers
+	 * 
+	 * @author  Joubin Houshyar (alphazero@sensesay.net)
+	 * @version alpha.0, Mar 20, 2010
+	 * @since   alpha.0
+	 * 
+	 */
+	public enum Options {
+		WITHSCORES,
+		BY,
+		LIMIT,
+		GET,
+		ASC,
+		DESC,
+		ALPHA,
+		STORE;
+		/** semantic sugar */
+		public final byte[] bytes;
+		Options () {
+			this.bytes = name().getBytes();
+		}
+	}
+	
     /**
      * Broad Request Type categorization of the Redis Command per the request's
      * argument signature.  These categories are a more differentiated than the
@@ -169,6 +228,8 @@ public enum Command {
     	/**  */
     	KEY,
     	/**  */
+    	VALUE,
+    	/**  */
     	KEY_KEY,
     	/**  */
     	KEY_NUM,
@@ -176,6 +237,8 @@ public enum Command {
     	KEY_SPEC,
     	/**  */
     	KEY_NUM_NUM,
+    	/** */
+    	KEY_NUM_NUM_OPTS,
     	/**  */
     	KEY_VALUE,
     	/**  */

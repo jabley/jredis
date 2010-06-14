@@ -25,18 +25,24 @@ import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import org.jredis.ClientRuntimeException;
 import org.jredis.JRedisFuture;
+import org.jredis.ObjectInfo;
 import org.jredis.RedisException;
+import org.jredis.ZSetEntry;
 import org.jredis.protocol.Command;
 import org.jredis.protocol.ResponseStatus;
 import org.jredis.ri.JRedisTestSuiteBase;
+import org.jredis.ri.alphazero.support.DefaultCodec;
 import org.jredis.ri.alphazero.support.Log;
 import org.testng.annotations.Test;
 
 /**
+ * [TODO: cleanup the unit test comments]
+ * 
  * Provides the comprehensive set of tests of all {@link JRedisFuture} methods.
  *
  * @author  Joubin Houshyar (alphazero@sensesay.net)
@@ -128,7 +134,7 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				String emptyset = "empty-set";
 				provider.sadd(emptyset, "delete-me");
 				provider.srem(emptyset, "delete-me");
-				assertEquals (provider.smembers(emptyset).get().size(), 0, "size of empty set members should be zero");
+				assertEquals (provider.smembers(emptyset).get(), null, "smembers should return a null set"); // api change from empty to null
 				assertEquals (provider.srandmember(emptyset).get(), null, "random member of empty set should be null");
 				
 				// non existent key
@@ -314,9 +320,9 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				assertTrue(members.size() == scardResp.get().longValue(), "smembers should have returned a list of scard size");
 				
 				List<byte[]> members2 = smembersResp2.get();
-				assertTrue(scardResp2.get().longValue() == 0, "setkey2 should be an empty set");
-				assertTrue(members2.size() == 0, "smembers should have returned an empty list");
-				assertTrue(members2.size() == scardResp2.get().longValue(), "smembers should have returned a list of scard size");
+				assertTrue(scardResp2.get().longValue() == 0, "setkey2 should be zero"); // api change - empty keys are removed
+				assertEquals(members2, null, "smembers should have returned null"); // api change from empty to null
+//				assertTrue(members2.size() == scardResp2.get().longValue(), "smembers should have returned a list of scard size");
 				
 			}
 			catch(ExecutionException e){
@@ -438,6 +444,274 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
 	}
 	
+	@Test
+	public void testZrangebyscoreStringByteArray() throws InterruptedException{
+		cmd = Command.ZRANGEBYSCORE.code + " byte[] | " + Command.ZSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<List<byte[]>> frRange = provider.zrangebyscore(setkey, 0, SMALL_CNT); 
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				List<byte[]> range = frRange.get();
+				assertTrue(range.size() > 0, "should have non empty results for range by score here");
+				
+				for(int i=0;i<SMALL_CNT-1; i++){
+					assertEquals(range.get(i), dataList.get(i), "expected value in the range by score missing");
+				}
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+	@Test
+	public void testZremrangebyscoreStringByteArray() throws InterruptedException{
+		cmd = Command.ZREMRANGEBYSCORE.code + " byte[] | " + Command.ZSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<Long> frRemCnt = provider.zremrangebyscore(setkey, 0, SMALL_CNT); 
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				long remCnt = frRemCnt.get().longValue();
+				assertTrue(remCnt > 0, "should have non-zero number of rem cnt for zremrangebyscore");
+				assertEquals(remCnt, SMALL_CNT+1, "should have specific number of rem cnt for zremrangebyscore");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+	@Test
+	public void testZcountStringByteArray() throws InterruptedException{
+		cmd = Command.ZCOUNT.code + " byte[] | " + Command.ZADD.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<Long> frCount = provider.zcount(setkey, 0, SMALL_CNT); 
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				long remCnt = frCount.get().longValue();
+				assertTrue(remCnt > 0, "should have non-zero number of rem cnt for zremrangebyscore");
+				assertEquals(remCnt, SMALL_CNT+1, "should have specific number for zcount");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	
+	@Test
+	public void testZremrangebyrankStringByteArray() throws InterruptedException{
+		cmd = Command.ZREMRANGEBYRANK.code + " byte[] | " + Command.ZSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<Long> frRemCnt = provider.zremrangebyrank(setkey, 0, SMALL_CNT); 
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				long remCnt = frRemCnt.get().longValue();
+				assertTrue(remCnt > 0, "should have non-zero number of rem cnt for zremrangebyrank");
+				assertEquals(remCnt, SMALL_CNT+1, "should have specific number of rem cnt for zremrangebyrank");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	
+	@Test
+	public void testZrankStringByteArray() throws InterruptedException{
+		cmd = Command.ZRANK.code;
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<SMALL_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			List<Future<Long>> rankingResps = new ArrayList<Future<Long>>();
+			for(int i=0;i<SMALL_CNT; i++)
+				rankingResps.add(provider.zrank(setkey, dataList.get(i)));
+
+			Future<Long>  frRankForMissingElement = provider.zrank(setkey, dataList.get(SMALL_CNT+1));
+			Future<Long>  frRankForNoSuchSet = provider.zrank("no-such-set", dataList.get(0));
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				int i=0;
+				for(Future<Long> resp : rankingResps)
+					assertEquals (resp.get().longValue(), i++, "zrank of element");
+				
+				assertEquals (frRankForMissingElement.get().longValue(), -1, "zrank against non-existent member should be -1");
+				assertEquals (frRankForNoSuchSet.get().longValue(), -1, "zrank against non-existent key should be -1");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	
+	
+	@Test
+	public void testZrevrankStringByteArray() throws InterruptedException{
+		cmd = Command.ZREVRANK.code;
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<=SMALL_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			List<Future<Long>> rankingResps = new ArrayList<Future<Long>>();
+			for(int i=0;i<=SMALL_CNT; i++)
+				rankingResps.add(provider.zrevrank(setkey, dataList.get(i)));
+
+			Future<Long>  frRankForMissingElement = provider.zrevrank(setkey, dataList.get(SMALL_CNT+1));
+			Future<Long>  frRankForNoSuchSet = provider.zrevrank("no-such-set", dataList.get(0));
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				int i=0;
+				for(Future<Long> resp : rankingResps)
+					assertEquals (resp.get().longValue(), SMALL_CNT - i++, "zrevrank of element");
+				
+				assertEquals (frRankForMissingElement.get().longValue(), -1, "zrevrank against non-existent member should be -1");
+				assertEquals (frRankForNoSuchSet.get().longValue(), -1, "zrevrank against non-existent key should be -1");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	@Test
+	public void testZrangeWithscoresStringByteArray() throws InterruptedException{
+		cmd = Command.ZRANGE$OPTS.code + " byte[] | " + Command.ZSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<List<byte[]>> frZValues = provider.zrange(setkey, 0, SMALL_CNT); 
+			Future<List<ZSetEntry>> frSubset = provider.zrangeSubset(setkey, 0, SMALL_CNT); 
+			
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				List<byte[]> zvalues = frZValues.get();
+				List<ZSetEntry> zsubset = frSubset.get();
+				for(int i=0;i<SMALL_CNT; i++){
+					assertEquals(zsubset.get(i).getValue(), dataList.get(i), "value of element from zrange_withscore");
+					assertEquals(zsubset.get(i).getValue(), zvalues.get(i), "value of element from zrange_withscore compared with zscore with same range query");
+					assertEquals (zsubset.get(i).getScore(), (double)i, "score of element from zrange_withscore");
+					assertTrue(zsubset.get(i).getScore() <= zsubset.get(i+1).getScore(), "range member score should be smaller or equal to previous range member.  idx: " + i);
+					if(i>0) assertTrue(zsubset.get(i).getScore() >= zsubset.get(i-1).getScore(), "range member score should be bigger or equal to previous range member.  idx: " + i);
+				}
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+	@Test
+	public void testZrevrangeWithscoresStringByteArray() throws InterruptedException{
+		cmd = Command.ZREVRANGE$OPTS.code + " byte[] | " + Command.ZSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+
+		try {
+			provider.flushdb();
+			String setkey = keys.get(0);
+			List<Future<Boolean>> expectedOKResponses = new ArrayList<Future<Boolean>>();
+			for(int i=0;i<MEDIUM_CNT; i++)
+				expectedOKResponses.add (provider.zadd(setkey, i, dataList.get(i)));
+			
+			Future<List<byte[]>> frZValues = provider.zrevrange(setkey, 0, SMALL_CNT); 
+			Future<List<ZSetEntry>> frSubset = provider.zrevrangeSubset(setkey, 0, SMALL_CNT); 
+			
+			try {
+				for(Future<Boolean> resp : expectedOKResponses)
+					assertTrue (resp.get().booleanValue(), "zadd of random element should have been true");
+				
+				List<byte[]> zvalues = frZValues.get();
+				List<ZSetEntry> zsubset = frSubset.get();
+				for(int i=0;i<SMALL_CNT; i++){
+					assertEquals(zsubset.get(i).getValue(), dataList.get(MEDIUM_CNT-i-1), "value of element from zrange_withscore");
+					assertEquals(zsubset.get(i).getValue(), zvalues.get(i), "value of element from zrange_withscore compared with zscore with same range query");
+					assertEquals (zsubset.get(i).getScore(), (double)MEDIUM_CNT-i-1, "score of element from zrange_withscore");
+					assertTrue(zsubset.get(i).getScore() >= zsubset.get(i+1).getScore(), "range member score should be smaller or equal to previous range member.  idx: " + i);
+					if(i>0) assertTrue(zsubset.get(i).getScore() <= zsubset.get(i-1).getScore(), "range member score should be bigger or equal to previous range member.  idx: " + i);
+				}
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
 	
 	@Test
 	public void testSaddStringByteArray() throws InterruptedException{
@@ -646,6 +920,43 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				for(int i=0; i<MEDIUM_CNT; i++)
 					assertEquals(items.get(i), dataList.get(i), 
 							"nth items of range 0->CNT should be the same as nth dataitem, where n is " + i);
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	
+	@Test
+	public void testSubstr() throws InterruptedException {
+		cmd = Command.SUBSTR.code ;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String key = keys.get(0);
+			byte[] value = dataList.get(0);
+			provider.set(key, value);
+			
+			List<Future<byte[]>> frBytesRespList = new ArrayList<Future<byte[]>>();
+			for(int i=0; i<value.length; i++){
+				frBytesRespList.add(provider.substr(key, i, i));
+			}
+			
+			Future<byte[]> frFullValue1 = provider.substr(key, 0, -1);
+			Future<byte[]> frFullValue2 = provider.substr(key, 0, value.length);
+			Future<byte[]> frExpectedNull = provider.substr(key, -1, 0);
+
+			try {
+				assertEquals(frFullValue1.get(), value, "full range substr should be equal to value");
+				assertEquals(frFullValue2.get(), value, "full range substr should be equal to value");
+				assertEquals(frExpectedNull.get(), null, "substr with -1 from idx should be null");
+				for(int i=0; i<value.length; i++){
+					assertTrue(frBytesRespList.get(i).get().length == 1, "checking size: using substr to iterate over value bytes @ idx " + i);
+					assertEquals(frBytesRespList.get(i).get()[0], value[i], "checking value: using substr to iterate over value bytes @ idx " + i);
+				}
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -951,6 +1262,40 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				assertEquals(values.size(), 3, "3 values expected");
 				for(int i=0; i<3; i++)
 					assertEquals(values.get(i), null, "nonexistent key value in list should be null");
+				
+				// edge cases
+				// all should through exceptions
+				boolean didRaiseEx;
+				didRaiseEx = false;
+				try {
+					String[] keys = null;
+					provider.mget(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+				didRaiseEx = false;
+				try {
+					String[] keys = new String[0];
+					provider.mget(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+				didRaiseEx = false;
+				try {
+					String[] keys = new String[3];
+					keys[0] = stringList.get(0);
+					keys[1] = null;
+					keys[2] = stringList.get(2);
+					provider.mget(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+				
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -970,12 +1315,69 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 			String key = this.keys.get(0);
 			provider.set (key, dataList.get(0));
 			Future<Boolean> existsResp1 = provider.exists(key); 
-			provider.del(key);
+			Future<Long> delResp = provider.del(key);
 			Future<Boolean> existsResp2 = provider.exists(key); 
-			
+
 			try {
+				assertEquals(delResp.get().longValue(), 1, "one key should been deleted");
 				assertTrue (existsResp1.get(), "After set key should exist");
 				assertFalse (existsResp2.get(), "After del key should not exist");
+				
+				// delete many keys
+				provider.flushdb();
+				for(int i=0; i<SMALL_CNT; i++) provider.set(stringList.get(i), dataList.get(i));
+
+				String[] keysToDel = new String[SMALL_CNT];
+				for(int i=0; i<SMALL_CNT; i++) keysToDel[i] = stringList.get(i);
+
+				Future<Long> delCnt1 = provider.del(keysToDel);
+				for(int i=0; i<SMALL_CNT; i++) assertFalse (provider.exists(stringList.get(i)).get(), "key should have been deleted");
+				assertEquals(delCnt1.get().longValue(), SMALL_CNT, "SMALL_CNT keys were deleted");
+				
+				// delete many keys but also spec one non existent keys - delete result should be less than key cnt
+				provider.flushdb();
+				for(int i=0; i<SMALL_CNT-1; i++) provider.set(stringList.get(i), dataList.get(i));
+
+				keysToDel = new String[SMALL_CNT];
+				for(int i=0; i<SMALL_CNT; i++) keysToDel[i] = stringList.get(i);
+
+				Future<Long> delCnt2 = provider.del(keysToDel);
+				for(int i=0; i<SMALL_CNT; i++) assertFalse (provider.exists(stringList.get(i)).get(), "key should have been deleted");
+				assertEquals(delCnt2.get().longValue(), SMALL_CNT-1, "SMALL_CNT-1 keys were actually deleted");
+
+				// edge cases
+				// all should through exceptions
+				boolean didRaiseEx;
+				didRaiseEx = false;
+				try {
+					String[] keys = null;
+					provider.del(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+				didRaiseEx = false;
+				try {
+					String[] keys = new String[0];
+					provider.del(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+				didRaiseEx = false;
+				try {
+					String[] keys = new String[3];
+					keys[0] = stringList.get(0);
+					keys[1] = null;
+					keys[2] = stringList.get(2);
+					provider.del(keys).get();
+				}
+				catch (IllegalArgumentException e) {didRaiseEx = true;}
+				catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+				if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -1069,6 +1471,229 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
 	}
 
+	@Test
+	public void testHsetHget() throws InterruptedException {
+		cmd = Command.HSET.code + " | " + Command.HGET + " | " + Command.HEXISTS;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			Future<Boolean> hsetResp1 = provider.hset(keys.get(0), keys.get(1), dataList.get(0));
+			Future<Boolean> hexistsResp1 = provider.hexists(keys.get(0), keys.get(1));
+			Future<Boolean> hexistsResp2 = provider.hexists(keys.get(0), keys.get(2));
+			Future<Boolean> hsetResp1_1 = provider.hset(keys.get(0), keys.get(1), dataList.get(0));
+			Future<Boolean> hsetResp2 = provider.hset(keys.get(0), keys.get(2), stringList.get(0));
+			Future<Boolean> hsetResp3 = provider.hset(keys.get(0), keys.get(3), 222);
+			objectList.get(0).setName("Hash Stash");
+			Future<Boolean> hsetResp4 = provider.hset(keys.get(0), keys.get(4), objectList.get(0));
+			
+			Future<byte[]> hgetResp1 = provider.hget(keys.get(0), keys.get(1));
+			Future<byte[]> hgetResp2 = provider.hget(keys.get(0), keys.get(2));
+			Future<byte[]> hgetResp3 = provider.hget(keys.get(0), keys.get(3));
+			Future<byte[]> hgetResp4 = provider.hget(keys.get(0), keys.get(4));
+			
+			Future<Long> hlenResp1 = provider.hlen(keys.get(0));
+
+			Future<Boolean> hdelResp1 = provider.hdel(keys.get(0), keys.get(1));
+			Future<Boolean> hdelResp2 = provider.hdel(keys.get(0), keys.get(1));
+			
+			Future<Long> hlenResp2 = provider.hlen(keys.get(0));
+			Future<Long> hlenResp3 = provider.hlen("some-random-key");
+			
+			
+			try {
+				assertTrue (hsetResp1.get(), "hset using byte[] value");
+				assertTrue (hexistsResp1.get(), "hexists of field should be true");
+				assertTrue (!hexistsResp2.get(), "hexists of non existent field should be false");
+				assertTrue (!hsetResp1_1.get(), "second hset using byte[] value should return false");
+				assertTrue (hsetResp2.get(), "hset using String value");
+				assertTrue (hsetResp3.get(), "hset using Number value");
+				assertTrue (hsetResp4.get(), "hset using Object value");
+				
+				assertEquals (hgetResp1.get(), dataList.get(0), "hget of field with byte[] value");
+				assertEquals (DefaultCodec.toStr(hgetResp2.get()), stringList.get(0), "hget of field with String value");
+				assertEquals (DefaultCodec.toLong(hgetResp3.get()).longValue(), 222, "hget of field with Number value");
+				TestBean objval = DefaultCodec.decode(hgetResp4.get());
+				assertEquals (objval.getName(), objectList.get(0).getName(), "hget of field with Object value");
+				
+				assertTrue (hdelResp1.get(), "hdel of field should be true");
+				assertTrue (!hdelResp2.get(), "hdel of non-existent field should be false");
+				
+				assertEquals (hlenResp1.get().longValue(), 4, "hlen of hash should be 4");
+				assertEquals (hlenResp2.get().longValue(), 3, "hlen of hash should be 3");
+				assertEquals (hlenResp3.get().longValue(), 0, "hlen of non-existant hash should be 0");
+
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+	@Test
+	public void testHkeys() throws InterruptedException {
+		cmd = Command.HSET.code + " | " + Command.HKEYS;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			Future<Boolean> hsetResp1 = provider.hset(keys.get(0), keys.get(1), dataList.get(0));
+			Future<Boolean> hsetResp2 = provider.hset(keys.get(0), keys.get(2), stringList.get(0));
+			Future<Boolean> hsetResp3 = provider.hset(keys.get(0), keys.get(3), 222);
+			objectList.get(0).setName("Hash Stash");
+			Future<Boolean> hsetResp4 = provider.hset(keys.get(0), keys.get(4), objectList.get(0));
+			
+			// get keys
+			Future<List<String>> hkeysResp1 = provider.hkeys(keys.get(0));
+			// alright - empty the hash
+			for(int i=1; i<5; i++)
+	            try {
+	                assertTrue(provider.hdel(keys.get(0), keys.get(i)).get());
+                }
+                catch (ExecutionException e) {
+    				Throwable cause = e.getCause();
+    				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+                }
+			// get keys again
+			Future<List<String>> hkeysResp2 = provider.hkeys(keys.get(0));
+			// nil case
+			Future<List<String>> hkeysResp3 = provider.hkeys("no-such-hash");
+			
+			
+			try {
+				assertTrue (hsetResp1.get(), "hset using byte[] value");
+				assertTrue (hsetResp2.get(), "hset using String value");
+				assertTrue (hsetResp3.get(), "hset using Number value");
+				assertTrue (hsetResp4.get(), "hset using Object value");
+				
+				List<String> hkeys = hkeysResp1.get(); 
+				assertEquals (hkeys.size(), 4, "keys list size should be 4");
+				assertNull (hkeysResp2.get(), "result should be null"); // api change from empty to null
+				assertEquals (hkeysResp3.get(), null, "list of keys of non-existent hash should be null");
+
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+	@Test
+	public void testHvals() throws InterruptedException {
+		cmd = Command.HSET.code + " | " + Command.HVALS;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			Future<Boolean> hsetResp1 = provider.hset(keys.get(0), keys.get(1), dataList.get(0));
+			Future<Boolean> hsetResp2 = provider.hset(keys.get(0), keys.get(2), stringList.get(0));
+			Future<Boolean> hsetResp3 = provider.hset(keys.get(0), keys.get(3), 222);
+			objectList.get(0).setName("Hash Stash");
+			Future<Boolean> hsetResp4 = provider.hset(keys.get(0), keys.get(4), objectList.get(0));
+			
+			// get values
+			Future<List<byte[]>> hvalsResp1 = provider.hvals(keys.get(0));
+			// alright - empty the hash
+			for(int i=1; i<5; i++)
+	            try {
+	                assertTrue(provider.hdel(keys.get(0), keys.get(i)).get());
+                }
+                catch (ExecutionException e) {
+    				Throwable cause = e.getCause();
+    				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+                }
+			// get values again
+    			// get values
+			Future<List<byte[]>> hvalsResp2 = provider.hvals(keys.get(0));
+			// nil case
+			Future<List<byte[]>> hvalsResp3 = provider.hvals("no-such-hash");
+			
+			
+			try {
+				assertTrue (hsetResp1.get(), "hset using byte[] value");
+				assertTrue (hsetResp2.get(), "hset using String value");
+				assertTrue (hsetResp3.get(), "hset using Number value");
+				assertTrue (hsetResp4.get(), "hset using Object value");
+				
+				List<byte[]> hvals = hvalsResp1.get(); 
+				assertEquals (hvals.size(), 4, "values list size should be 4");
+				assertEquals (hvalsResp2.get(), null, "values list size should be null"); // used to be empty but api changed
+				assertEquals (hvalsResp3.get(), null, "list of values of non-existent hash should be null");
+
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
+
+	@Test
+	public void testHgetall() throws InterruptedException {
+		cmd = Command.HSET.code + " | " + Command.HGETALL;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			Future<Boolean> hsetResp1 = provider.hset(keys.get(0), keys.get(1), dataList.get(0));
+			Future<Boolean> hsetResp2 = provider.hset(keys.get(0), keys.get(2), stringList.get(0));
+			Future<Boolean> hsetResp3 = provider.hset(keys.get(0), keys.get(3), 222);
+			objectList.get(0).setName("Hash Stash");
+			Future<Boolean> hsetResp4 = provider.hset(keys.get(0), keys.get(4), objectList.get(0));
+			
+			// get keys
+			Future<List<String>> frHkeys = provider.hkeys(keys.get(0));
+			
+			// get all
+			Future<Map<String, byte[]>> frHmap1 = provider.hgetall(keys.get(0));
+			
+			// delete all keys
+			for(int i =1; i<5; i++) {
+	            try {
+	                provider.hdel(keys.get(0), keys.get(i)).get();
+                }
+                catch (ExecutionException e) {
+    				Throwable cause = e.getCause();
+    				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+                }
+			}
+			// get all again
+			Future<Map<String, byte[]>> frHmap2 = provider.hgetall(keys.get(0));
+    			
+			// get all for non-existent hash
+			Future<Map<String, byte[]>> frHmap3 = provider.hgetall("no-such-hash");
+        			
+			try {
+				assertTrue (hsetResp1.get(), "hset using byte[] value");
+				assertTrue (hsetResp2.get(), "hset using String value");
+				assertTrue (hsetResp3.get(), "hset using Number value");
+				assertTrue (hsetResp4.get(), "hset using Object value");
+				
+				assertEquals( frHmap1.get().size(), 4, "hash map length");
+				assertEquals( frHkeys.get().size(), 4, "keys list length");
+
+				Map<String, byte[]> hmap = frHmap1.get();
+				assertEquals(hmap.get(keys.get(1)), dataList.get(0), "byte[] value mapping should correspond to prior HSET");
+				assertEquals(DefaultCodec.toStr(hmap.get(keys.get(2))), stringList.get(0), "String value mapping should correspond to prior HSET");
+				assertEquals(DefaultCodec.toLong(hmap.get(keys.get(3))).longValue(), 222, "Number value mapping should correspond to prior HSET");
+				assertEquals(DefaultCodec.decode(hmap.get(keys.get(4))), objectList.get(0), "Object value mapping should correspond to prior HSET");
+				
+				Map<String, byte[]> hmap2 = frHmap2.get();
+				assertEquals( hmap2, null, "result should be null"); // api change from empty to null result
+				
+				Map<String, byte[]> hmap3 = frHmap3.get();
+				assertEquals( hmap3, null, "hgetall for non existent hash should be null");
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+
 	
 	/**
 	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#set(java.lang.String, byte[])}.
@@ -1094,6 +1719,70 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				Throwable cause = e.getCause();
 				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
 			}
+		} 
+		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+	}
+	
+	/**
+	 * Test method for {@link JRedisFuture#append(String, String)}
+	 * @throws InterruptedException 
+	 */
+	@Test
+	public void testAppendStringString() throws InterruptedException {
+		cmd = Command.APPEND.code + " | " + Command.GET.code + " String";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			// append to a non-existent key
+			// as of Redis 1.3.7 it behaves just like set but returns value len instead of status
+			String key1 = keys.get(0);
+			
+			Future<Long> frLen0 = provider.append(key1, emptyString);
+			Future<byte[]> frGet0 = provider.get(key1);
+			
+			Future<Long> frLen1 = provider.append(key1, stringList.get(0));
+			Future<byte[]> frGet1 = provider.get(key1);
+			
+			Future<Long> frLen2 = provider.append(key1, stringList.get(1));
+			Future<byte[]> frGet2 = provider.get(key1);
+			
+			provider.sadd(keys.get(1), stringList.get(0));
+			Future<Long>   frExpectedError = provider.append(keys.get(1), stringList.get(0));
+			
+			try {
+				assertEquals(frLen0.get().longValue(), 0, "append of emtpy string to new key should be zero");
+				assertEquals(DefaultCodec.toStr(frGet0.get()), emptyString, "get results after append to new key for empty string");
+				
+				assertEquals(frLen1.get().longValue(), stringList.get(0).length(), "append of emtpy string to new key should be zero");
+				assertEquals(DefaultCodec.toStr(frGet1.get()), stringList.get(0), "get results after append to new key for empty string");
+				
+				assertEquals(frLen2.get().longValue(), stringList.get(0).length() + stringList.get(1).length(), "append of emtpy string to new key should be zero");
+				StringBuffer appendedString = new StringBuffer();
+				appendedString.append(stringList.get(0));
+				appendedString.append(stringList.get(1));
+				assertEquals(DefaultCodec.toStr(frGet2.get()), appendedString.toString(), "get results after append to new key for empty string");
+				
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+
+			
+			// check see if we got the expected RedisException
+			boolean expected = false;
+			try {
+				frExpectedError.get();
+			}
+			catch(ExecutionException e){
+				Throwable cause = e.getCause();
+				if(cause instanceof RedisException)
+					expected = true;
+				else
+					fail(cmd + " ERROR => " + cause.getLocalizedMessage(), e); 
+			}
+			assertTrue(expected, "expecting RedisException for append to a non-string key");
 		} 
 		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
 	}
@@ -1355,4 +2044,96 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 	        fail(cmd + " FAULT: " + e.getCause().getLocalizedMessage(), e);
         }
 	}
+	@Test
+	public void testEcho() throws InterruptedException {
+		Future<byte[]> echoResp = null;
+		cmd = Command.ECHO.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			echoResp = provider.echo(dataList.get(0));
+			assertEquals(dataList.get(0), echoResp.get(), "data and echo results");
+
+			byte[] zerolenData = new byte[0];
+			assertEquals(zerolenData, provider.echo(zerolenData).get(), "zero len byte[] and echo results");
+			boolean expected = false;
+			try {
+				provider.echo((byte[])null);
+			}
+			catch(IllegalArgumentException e) { expected = true; }
+			assertTrue(expected, "expecting exception for null value to ECHO");
+
+		}
+        catch (ExecutionException e) {
+	        e.printStackTrace();
+	        fail(cmd + " FAULT: " + e.getCause().getLocalizedMessage(), e);
+        }
+	}
+	
+	@Test
+	public void testBgrewriteaof() throws InterruptedException {
+		Future<String> cmdRespMsg = null;
+		cmd = Command.BGREWRITEAOF.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			cmdRespMsg = provider.bgrewriteaof();
+			assertTrue(cmdRespMsg.get() != null, "cmd response message should not be null");
+		}
+        catch (ExecutionException e) {
+	        e.printStackTrace();
+	        fail(cmd + " FAULT: " + e.getCause().getLocalizedMessage(), e);
+        }
+	}
+	
+	/**
+	 * Test {@link JRedisFuture#debug()}
+	 * @throws InterruptedException 
+	 */
+	@Test
+	public void testDebug () throws InterruptedException {
+		Future<ObjectInfo> frInfo = null;
+		cmd = Command.DEBUG.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			provider.set("foo", "bar");
+			frInfo = provider.debug("foo");
+			ObjectInfo info = frInfo.get();
+			assertNotNull(info);
+			Log.log("DEBUG of key => %s", info);
+		}
+        catch (ExecutionException e) {
+	        e.printStackTrace();
+	        fail(cmd + " FAULT: " + e.getCause().getLocalizedMessage(), e);
+        }
+	}
+	
+	@Test
+	public void testExpireat() throws InterruptedException {
+		cmd = Command.EXPIREAT.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb().get();
+			String keyToExpire = "expire-me";
+			provider.set(keyToExpire, dataList.get(0)).get();
+
+			long expireTime = System.currentTimeMillis() + 500;
+			Log.log("TEST: %s with expire time 1000 msecs in future", Command.EXPIREAT);
+			assertTrue(provider.expireat(keyToExpire, expireTime).get(), "expireat for existing key should be true");
+			assertTrue(!provider.expireat("no-such-key", expireTime).get(), "expireat for non-existant key should be false");
+			assertTrue (provider.exists(keyToExpire).get());
+			
+			
+			// NOTE: IT SIMPLY WON'T WORK WITHOUT GIVING REDIS A CHANCE
+			// could be network latency, or whatever, but the expire command is NOT
+			// that precise, so we need to wait a bit longer
+			
+			Thread.sleep(2000);
+			assertTrue (!provider.exists(keyToExpire).get(), "key should have expired by now");
+		}
+        catch (ExecutionException e) {
+	        e.printStackTrace();
+	        fail(cmd + " FAULT: " + e.getCause().getLocalizedMessage(), e);
+        }
+	}
+
 }

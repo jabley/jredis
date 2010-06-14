@@ -28,9 +28,11 @@ import static org.testng.Assert.fail;
 import java.util.List;
 import java.util.Map;
 import org.jredis.JRedis;
+import org.jredis.ObjectInfo;
 import org.jredis.RedisException;
 import org.jredis.RedisInfo;
 import org.jredis.RedisType;
+import org.jredis.ZSetEntry;
 import org.jredis.protocol.Command;
 import org.jredis.ri.JRedisTestSuiteBase;
 import org.jredis.ri.alphazero.support.DefaultCodec;
@@ -199,6 +201,42 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		}
 	}
 
+	@Test
+	public void testExpireat() {
+		cmd = Command.EXPIREAT.code;
+		Log.log("TEST: %s command(s)", cmd);
+		try {
+			provider.flushdb();
+			assertTrue(provider.dbsize() == 0);
+			
+			String keyToExpire = "expire-me";
+			provider.set(keyToExpire, dataList.get(0));
+			assertTrue (provider.exists(keyToExpire));
+			
+			long expireTime = System.currentTimeMillis() + 500;
+			Log.log("TEST: %s with expire time 1000 msecs in future", Command.EXPIREAT);
+			assertTrue(provider.expireat(keyToExpire, expireTime), "expireat for existing key should be true");
+			assertTrue(!provider.expireat("no-such-key", expireTime), "expireat for non-existant key should be false");
+			assertTrue (provider.exists(keyToExpire));
+			
+			
+			// NOTE: IT SIMPLY WON'T WORK WITHOUT GIVING REDIS A CHANCE
+			// could be network latency, or whatever, but the expire command is NOT
+			// that precise, so we need to wait a bit longer
+			
+			Thread.sleep(2000);
+			assertTrue (!provider.exists(keyToExpire), "key should have expired by now");
+			
+		} 
+		catch (RedisException e) {
+			fail(cmd + " with password: " + password, e);
+		}
+		catch (InterruptedException e) {
+			fail (cmd + "thread was interrupted and test did not conclude" + e.getLocalizedMessage());
+		}
+	}
+
+
 // CANT test this without risking hosing the user's DBs
 // TODO: use a flag
 //	/**
@@ -336,6 +374,23 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 	}
 
 	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#bgrewriteaof()}.
+	 */
+	@Test
+	public void testBgrewriteaofe() {
+		cmd = Command.BGREWRITEAOF.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			// TODO: what's a meaningful test for this besides asserting command works?
+			String msg = provider.bgrewriteaof();
+			assertTrue(msg != null, "expecting a non null response message - msg details may change so will not be checked here");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+
+	/**
 	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#set(java.lang.String, byte[])}.
 	 */
 	@Test
@@ -354,6 +409,99 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			assertTrue(provider.setnx(keys.get(1), dataList.get(1)), "set key");
 			assertNotNull(provider.get(keys.get(1)));
 			assertFalse(provider.setnx(keys.get(1), dataList.get(2)), "key was already set");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#append(java.lang.String, byte[])}.
+	 */
+	@Test
+	public void testAppendStringByteArray() {
+		cmd = Command.SET.code + " | " + Command.APPEND.code + " byte[] | " + Command.GET;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			// append to a non-existent key
+			// as of Redis 1.3.7 it behaves just like set but returns value len instead of status
+			String key1 = keys.get(0);
+			long key1len = 0;
+			key1len = provider.append(key1, emptyBytes);
+			assertEquals(key1len, 0, "append of emtpy bytes to new key should be zero");
+			assertEquals(provider.get(key1), emptyBytes, "get results after append to new key for empty byte[]");
+			
+			long len = 0;
+			len = provider.append(key1, dataList.get(0));
+			assertEquals(len+key1len, dataList.get(0).length, "append results");
+			assertEquals(provider.get(key1), dataList.get(0), "get results after append");
+			key1len += len;
+			
+			len = provider.append(key1, dataList.get(1));
+			assertEquals(len, dataList.get(0).length + dataList.get(1).length, "append results");
+			
+			byte[] appendedBytes = new byte[dataList.get(0).length + dataList.get(1).length];
+			System.arraycopy(dataList.get(0), 0, appendedBytes, 0, dataList.get(0).length);
+			System.arraycopy(dataList.get(1), 0, appendedBytes, dataList.get(0).length, dataList.get(1).length);
+			assertEquals(provider.get(key1), appendedBytes, "get results after 2nd append");
+			
+			// raise errors
+			boolean expected = false;
+			try {
+				String nonStringKey = keys.get(1);
+				provider.sadd(nonStringKey, dataList.get(0));
+				provider.append(nonStringKey, dataList.get(3));
+			}
+			catch(RedisException e) { expected = true; }
+			assertTrue(expected, "expecting RedisException for append to a non-string key");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#append(java.lang.String, java.lang.String)}.
+	 */
+	@Test
+	public void testAppendStringString() {
+		cmd = Command.SET.code + " | " + Command.APPEND.code + " String | " + Command.GET;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			// append to a non-existent key
+			// as of Redis 1.3.7 it behaves just like set but returns value len instead of status
+			String key1 = keys.get(0);
+			long key1len = 0;
+			long len = 0;
+			
+			// append empty string to non-existent key
+			key1len = provider.append(key1, emptyString);
+			assertEquals(key1len, 0, "append of emtpy string to new key should be zero");
+			assertEquals(DefaultCodec.toStr(provider.get(key1)), emptyString, "get results after append to new key for empty string");
+			
+			// append a string
+			len = provider.append(key1, stringList.get(0));
+			assertEquals(len+key1len, stringList.get(0).length(), "append results");
+			assertEquals(DefaultCodec.toStr(provider.get(key1)), stringList.get(0), "get results after append");
+			key1len += len;
+			
+			// append a string again
+			len = provider.append(key1, stringList.get(1));
+			assertEquals(len, stringList.get(0).length() + stringList.get(1).length(), "append results");
+			StringBuffer appendedString = new StringBuffer();
+			appendedString.append(stringList.get(0));
+			appendedString.append(stringList.get(1));
+			assertEquals(DefaultCodec.toStr(provider.get(key1)), appendedString.toString(), "get results after 2nd append");
+			
+			// raise RedisException
+			boolean expected = false;
+			try {
+				String nonStringKey = keys.get(1);
+				provider.sadd(nonStringKey, stringList.get(0));
+				provider.append(nonStringKey, stringList.get(3));
+			}
+			catch(RedisException e) { expected = true; }
+			assertTrue(expected, "expecting RedisException for append to a non-string key");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -421,7 +569,149 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
 
+	@Test
+	public void testHsetHgetHexists() {
+		cmd = Command.HSET.code + " | " + Command.HGET + " | " + Command.HEXISTS;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			assertTrue( provider.hset(keys.get(0), keys.get(1), dataList.get(0)), "hset using byte[] value");
+			assertTrue( provider.hexists(keys.get(0), keys.get(1)), "field should exist");
+			assertTrue( !provider.hexists(keys.get(0), keys.get(2)), "field should NOT exist");
+			assertTrue( !provider.hset(keys.get(0), keys.get(1), dataList.get(0)), "repeated hset using byte[] value should return false");
+			
+			assertTrue( provider.hset(keys.get(0), keys.get(2), stringList.get(0)), "hset using String value");
+			assertTrue( provider.hset(keys.get(0), keys.get(3), 222), "hset using Number value");
+			objectList.get(0).setName("Hash Stash");
+			assertTrue( provider.hset(keys.get(0), keys.get(4), objectList.get(0)), "hset using Object value");
+			
+			assertEquals( provider.hlen(keys.get(0)), 4, "hlen value");
+			assertEquals( provider.hlen("some-random-key"), 0, "hlen of non-existent hash should be zero");
+
+			
+			assertEquals (provider.hget(keys.get(0), keys.get(1)), dataList.get(0), "hget of field with byte[] value");
+			assertEquals (DefaultCodec.toStr(provider.hget(keys.get(0), keys.get(2))), stringList.get(0), "hget of field with String value");
+			assertEquals (DefaultCodec.toLong(provider.hget(keys.get(0), keys.get(3))).longValue(), 222, "hget of field with Number value");
+			TestBean objval = DefaultCodec.decode(provider.hget(keys.get(0), keys.get(4)));
+			assertEquals (objval.getName(), objectList.get(0).getName(), "hget of field with Object value");
+			
+			assertTrue( provider.hdel(keys.get(0), keys.get(1)), "hdel of existing field should be true");
+			assertTrue( !provider.hdel(keys.get(0), keys.get(1)), "hdel of non-existing field should be false");
+			
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+
 	
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#hkeys(java.lang.String, java.io.Serializable)}.
+	 */
+	@Test
+	public void testHkeys() {
+		cmd = Command.HKEYS.code + " | " + Command.HSET + " | " + Command.HDEL;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			assertTrue( provider.hset(keys.get(0), keys.get(1), dataList.get(0)), "hset using byte[] value");
+			assertTrue( provider.hset(keys.get(0), keys.get(2), stringList.get(0)), "hset using String value");
+			assertTrue( provider.hset(keys.get(0), keys.get(3), 222), "hset using Number value");
+			objectList.get(0).setName("Hash Stash");
+			assertTrue( provider.hset(keys.get(0), keys.get(4), objectList.get(0)), "hset using Object value");
+			
+			List<String> hkeys = provider.hkeys(keys.get(0));
+			assertEquals( hkeys.size(), 4, "keys list length");
+			
+			for(String key : hkeys){
+				assertTrue(provider.hdel(keys.get(0), key), "deleting existing field should be true");
+			}
+			assertEquals(provider.hlen(keys.get(0)), 0, "hash should empty");
+			List<String> hkeys2 = provider.hkeys(keys.get(0));
+			assertEquals( hkeys2, null, "keys list should be null"); // this used to be an empty list - api change says it is null
+			
+			List<String> hkeys3 = provider.hkeys("no-such-hash");
+			assertEquals( hkeys3, null, "keys list of non-existent hash should be null.");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#hvals(java.lang.String, java.io.Serializable)}.
+	 */
+	@Test
+	public void testHvals() {
+		cmd = Command.HVALS.code + " | " + Command.HSET + " | " + Command.HDEL;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			assertTrue( provider.hset(keys.get(0), keys.get(1), dataList.get(0)), "hset using byte[] value");
+			assertTrue( provider.hset(keys.get(0), keys.get(2), stringList.get(0)), "hset using String value");
+			assertTrue( provider.hset(keys.get(0), keys.get(3), 222), "hset using Number value");
+			objectList.get(0).setName("Hash Stash");
+			assertTrue( provider.hset(keys.get(0), keys.get(4), objectList.get(0)), "hset using Object value");
+			
+			List<byte[]> hvals = provider.hvals(keys.get(0));
+			assertEquals( hvals.size(), 4, "value list length");
+			
+			List<String> hkeys = provider.hkeys(keys.get(0));
+			assertEquals( hkeys.size(), 4, "keys list length");
+			
+			for(String key : hkeys){
+				assertTrue(provider.hdel(keys.get(0), key), "deleting existing field should be true");
+			}
+			assertEquals(provider.hlen(keys.get(0)), 0, "hash should empty");
+			List<byte[]> hvals2 = provider.hvals(keys.get(0));
+			assertEquals( hvals2, null, "(api change) keys list should be null"); // this used to return an empty set
+			
+			List<byte[]> hvals3 = provider.hvals("no-such-hash");
+			assertEquals( hvals3, null, "values list of non-existent hash should be null.");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#hvals(java.lang.String, java.io.Serializable)}.
+	 */
+	@Test
+	public void testHgetall() {
+		cmd = Command.HGETALL.code + " | " + Command.HSET + " | " + Command.HDEL;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			assertTrue( provider.hset(keys.get(0), keys.get(1), dataList.get(0)), "hset using byte[] value");
+			assertTrue( provider.hset(keys.get(0), keys.get(2), stringList.get(0)), "hset using String value");
+			assertTrue( provider.hset(keys.get(0), keys.get(3), 222), "hset using Number value");
+			objectList.get(0).setName("Hash Stash");
+			assertTrue( provider.hset(keys.get(0), keys.get(4), objectList.get(0)), "hset using Object value");
+			
+			Map<String, byte[]> hmap = provider.hgetall(keys.get(0));
+			assertEquals( hmap.size(), 4, "hash map length");
+			
+			List<String> hkeys = provider.hkeys(keys.get(0));
+			assertEquals( hkeys.size(), 4, "keys list length");
+			
+			for(String key : hkeys)
+				assertTrue(hmap.get(key) != null, "key should exists in map and have a corresponding non null value");
+			
+			assertEquals(hmap.get(keys.get(1)), dataList.get(0), "byte[] value mapping should correspond to prior HSET");
+			assertEquals(DefaultCodec.toStr(hmap.get(keys.get(2))), stringList.get(0), "String value mapping should correspond to prior HSET");
+			assertEquals(DefaultCodec.toLong(hmap.get(keys.get(3))).longValue(), 222, "Number value mapping should correspond to prior HSET");
+			assertEquals(DefaultCodec.decode(hmap.get(keys.get(4))), objectList.get(0), "Object value mapping should correspond to prior HSET");
+			
+			for(String key : hkeys)
+				assertTrue(provider.hdel(keys.get(0), key), "deletion of existing key in hash should be true");
+			
+			Map<String, byte[]> hmap2 = provider.hgetall(keys.get(0));
+			assertEquals( hmap2, null, "hash map should be null"); // used to be empty - api change says it will be null
+			
+			Map<String, byte[]> hmap3 = provider.hgetall("no-such-hash");
+			assertEquals( hmap3, null, "hgetall for non existent hash should be null");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
 	
 	/**
 	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#set(java.lang.String, byte[])}.
@@ -575,8 +865,66 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.set (key, dataList.get(0));
 			assertTrue (provider.exists(key));
 			
-			provider.del(key);
+			long delCnt;
+			delCnt = provider.del(key);
 			assertFalse (provider.exists(key));
+			assertEquals(delCnt, 1, "one key was deleted");
+
+			// delete many keys
+			provider.flushdb();
+			for(int i=0; i<SMALL_CNT; i++) provider.set(stringList.get(i), dataList.get(i));
+
+			String[] keysToDel = new String[SMALL_CNT];
+			for(int i=0; i<SMALL_CNT; i++) keysToDel[i] = stringList.get(i);
+
+			delCnt = provider.del(keysToDel);
+			for(int i=0; i<SMALL_CNT; i++) assertFalse (provider.exists(stringList.get(i)), "key should have been deleted");
+			assertEquals(delCnt, SMALL_CNT, "SMALL_CNT keys were deleted");
+			
+			// delete many keys but also spec one non existent keys - delete result should be less than key cnt
+			provider.flushdb();
+			for(int i=0; i<SMALL_CNT-1; i++) provider.set(stringList.get(i), dataList.get(i));
+
+			keysToDel = new String[SMALL_CNT];
+			for(int i=0; i<SMALL_CNT; i++) keysToDel[i] = stringList.get(i);
+
+			delCnt = provider.del(keysToDel);
+			for(int i=0; i<SMALL_CNT; i++) assertFalse (provider.exists(stringList.get(i)), "key should have been deleted");
+			assertEquals(delCnt, SMALL_CNT-1, "SMALL_CNT-1 keys were actually deleted");
+			
+			
+			// edge cases
+			// all should through exceptions
+			boolean didRaiseEx;
+			didRaiseEx = false;
+			try {
+				String[] keys = null;
+				provider.del(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+			didRaiseEx = false;
+			try {
+				String[] keys = new String[0];
+				provider.del(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+			didRaiseEx = false;
+			try {
+				String[] keys = new String[3];
+				keys[0] = stringList.get(0);
+				keys[1] = null;
+				keys[2] = stringList.get(2);
+				provider.del(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -614,6 +962,39 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			assertEquals(values.size(), 3, "3 values expected");
 			for(int i=0; i<3; i++)
 				assertEquals(values.get(i), null, "nonexistent key value in list should be null");
+			
+			// edge cases
+			// all should through exceptions
+			boolean didRaiseEx;
+			didRaiseEx = false;
+			try {
+				String[] keys = null;
+				provider.mget(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+			didRaiseEx = false;
+			try {
+				String[] keys = new String[0];
+				provider.mget(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
+
+			didRaiseEx = false;
+			try {
+				String[] keys = new String[3];
+				keys[0] = stringList.get(0);
+				keys[1] = null;
+				keys[2] = stringList.get(2);
+				provider.mget(keys);
+			}
+			catch (IllegalArgumentException e) {didRaiseEx = true;}
+			catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+			if(!didRaiseEx){ fail ("Expected exception not raised."); }
 			
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
@@ -1092,6 +1473,38 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
 	
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#substr(java.lang.String, int, int)}.
+	 */
+	@Test
+	public void testSubstr() {
+		cmd = Command.SUBSTR.code ;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String key = keys.get(0);
+			byte[] value = dataList.get(0);
+			provider.set(key, value);
+			
+			byte[] substr = null;
+			substr = provider.substr(key, 0, value.length);
+			assertEquals(substr, value, "full range substr should be equal to value");
+			
+			for(int i=0; i<value.length; i++){
+				assertTrue(provider.substr(key, i, i).length == 1, "checking size: using substr to iterate over value bytes @ idx " + i);
+				assertEquals(provider.substr(key, i, i)[0], value[i], "checking value: using substr to iterate over value bytes @ idx " + i);
+			}
+				
+			substr = provider.substr(key, 0, -1);
+			assertEquals(substr, value, "full range substr should be equal to value");
+			
+			substr = provider.substr(key, -1, 0);
+			assertEquals(substr, null, "substr with -1 from idx should be null");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
 
 	/**
 	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#lrem(java.lang.String, byte[], int)}.
@@ -1514,6 +1927,177 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
 	
+	
+	@Test
+	public void testZrankStringByteArray() {
+		cmd = Command.ZRANK.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<=SMALL_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			for(int i=0;i<=SMALL_CNT; i++)
+				assertEquals (provider.zrank(setkey, dataList.get(i)), i, "zrank of element");
+
+			// edge cases
+			assertEquals (provider.zrank(setkey, dataList.get(SMALL_CNT+1)), -1, "zrank against non-existent member should be -1");
+			assertEquals (provider.zrank("no-such-set", dataList.get(0)), -1, "zrank against non-existent key should be -1");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	
+	@Test
+	public void testZrevrankStringByteArray() {
+		cmd = Command.ZREVRANK.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<=SMALL_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			for(int i=0;i<=SMALL_CNT; i++)
+				assertEquals (provider.zrevrank(setkey, dataList.get(i)), SMALL_CNT - i, "zrevrank of element");
+
+			// edge cases
+			assertEquals (provider.zrevrank(setkey, dataList.get(SMALL_CNT+1)), -1, "zrevrank against non-existent member should be -1");
+			assertEquals (provider.zrevrank("no-such-set", dataList.get(0)), -1, "zrevrank against non-existent key should be -1");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+
+	@Test
+	public void testZrangeWithscoresStringByteArray() {
+		cmd = Command.ZRANGE$OPTS.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			List<byte[]>  zvalues = provider.zrange(setkey, 0, SMALL_CNT);
+			
+			List<ZSetEntry>  zsubset = provider.zrangeSubset(setkey, 0, SMALL_CNT);
+			for(int i=0;i<SMALL_CNT; i++){
+				assertEquals(zsubset.get(i).getValue(), dataList.get(i), "value of element from zrange_withscore");
+				assertEquals(zsubset.get(i).getValue(), zvalues.get(i), "value of element from zrange_withscore compared with zscore with same range query");
+				assertEquals (zsubset.get(i).getScore(), (double)i, "score of element from zrange_withscore");
+				assertTrue(zsubset.get(i).getScore() <= zsubset.get(i+1).getScore(), "range member score should be smaller or equal to previous range member.  idx: " + i);
+				if(i>0) assertTrue(zsubset.get(i).getScore() >= zsubset.get(i-1).getScore(), "range member score should be bigger or equal to previous range member.  idx: " + i);
+			}
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	@Test
+	public void testZrevrangeWithscoresStringByteArray() {
+		cmd = Command.ZREVRANGE$OPTS.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			List<byte[]>  zvalues = provider.zrevrange(setkey, 0, SMALL_CNT);
+			
+			List<ZSetEntry>  zsubset = provider.zrevrangeSubset(setkey, 0, SMALL_CNT);
+			for(int i=0;i<SMALL_CNT; i++){
+				assertEquals(zsubset.get(i).getValue(), dataList.get(MEDIUM_CNT-i-1), "value of element from zrange_withscore");
+				assertEquals(zsubset.get(i).getValue(), zvalues.get(i), "value of element from zrange_withscore compared with zscore with same range query");
+				assertEquals (zsubset.get(i).getScore(), (double)MEDIUM_CNT-i-1, "score of element from zrange_withscore");
+				assertTrue(zsubset.get(i).getScore() >= zsubset.get(i+1).getScore(), "range member score should be smaller or equal to previous range member.  idx: " + i);
+				if(i>0) assertTrue(zsubset.get(i).getScore() <= zsubset.get(i-1).getScore(), "range member score should be bigger or equal to previous range member.  idx: " + i);
+			}
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	@Test
+	public void testZrangebyscoreStringByteArray() {
+		cmd = Command.ZRANGEBYSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			List<byte[]>  range = provider.zrangebyscore(setkey, 0, SMALL_CNT);
+			assertTrue(range.size() > 0, "should have non empty results for range by score here");
+			for(int i=0;i<SMALL_CNT-1; i++){
+				assertEquals(range.get(i), dataList.get(i), "expected value in the range by score missing");
+			}
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	@Test
+	public void testZremrangebyscoreStringByteArray() {
+		cmd = Command.ZREMRANGEBYSCORE.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			long count = provider.zcount(setkey, 0, SMALL_CNT);
+			assertTrue(count > 0, "should have non-zero number of rem cnt for zcount");
+			assertEquals(count, SMALL_CNT+1, "should have specific number of rem cnt for zcount");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	
+	@Test
+	public void testZcountStringByteArray() {
+		cmd = Command.ZCOUNT.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			long remCnt = provider.zremrangebyscore(setkey, 0, SMALL_CNT);
+			assertTrue(remCnt > 0, "should have non-zero number of rem cnt for zremrangebyscore");
+			assertEquals(remCnt, SMALL_CNT+1, "should have specific number of rem cnt for zremrangebyscore");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
+	@Test
+	public void testZremrangebyrankStringByteArray() {
+		cmd = Command.ZREMRANGEBYRANK.code + " byte[]";
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			String setkey = keys.get(0);
+			for(int i=0;i<MEDIUM_CNT; i++)
+				assertTrue(provider.zadd(setkey, i, dataList.get(i)), "zadd of random element should be true");
+			
+			long remCnt = provider.zremrangebyrank(setkey, 0, SMALL_CNT);
+			assertTrue(remCnt > 0, "should have non-zero number of rem cnt for zremrangebyrank");
+			assertEquals(remCnt, SMALL_CNT+1, "should have specific number of rem cnt for zremrangebyrank");
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	
 	@Test
 	public void testZincrbyStringByteArray() {
 		cmd = Command.ZSCORE.code + " byte[] | " + Command.ZINCRBY.code + " byte[]";
@@ -1714,8 +2298,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), dataList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = provider.smembers(keys.get(2));
-			assertNotNull(members, "smembers should return an empty set, not null");
-			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			assertNull(members, "smembers should return a null"); // this used to be an empty set - api change
+//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -1741,8 +2325,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), stringList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = toStr(provider.smembers(keys.get(2)));
-			assertNotNull(members, "smembers should return an empty set, not null");
-			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			assertNull(members, "smembers should return null for set that was fully emptied"); // api change.
+//			assertTrue(members.size() == 0, "smembers should have returned an empty list"); // api change - now it is null
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -1768,8 +2352,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), longList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = toLong (provider.smembers(keys.get(2)));
-			assertNotNull(members, "smembers should return an empty set, not null");
-			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			assertNull(members, "smembers should return null"); // api change (also toLong changed to handle the null results).
+//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -1795,8 +2379,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), objectList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = decode (provider.smembers(keys.get(2)));
-			assertNotNull(members, "smembers should return an empty set, not null");
-			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			assertNull(members, "smembers should return null"); // API change
+//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -2341,6 +2925,23 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
+	/**
+	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#debug()}.
+	 */
+	@Test
+	public void testDebug() {
+		cmd = Command.DEBUG.code ;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			provider.set("foo", "bar");
+			ObjectInfo info = provider.debug("foo");
+			assertNotNull(info);
+			Log.log("DEBUG of key => %s", info);
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
 
 	/**
 	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#info()}.
@@ -2399,6 +3000,27 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			assertEquals(SMALL_CNT, rediskeys.size(), "size of key list should be SMALL_CNT");
 			for(int i=0; i<SMALL_CNT; i++) 
 				assertTrue(rediskeys.contains(patternList.get(i)), "should contain " + patternList.get(i));
+		} 
+		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+	}
+	@Test
+	public void testEcho() {
+		cmd = Command.ECHO.code;
+		Log.log("TEST: %s command", cmd);
+		try {
+			provider.flushdb();
+			
+			assertEquals(dataList.get(0), provider.echo(dataList.get(0)), "data and echo results");
+			
+			byte[] zerolenData = new byte[0];
+			assertEquals(zerolenData, provider.echo(zerolenData), "zero len byte[] and echo results");
+			
+			boolean expected = false;
+			try {
+				provider.echo((byte[])null);
+			}
+			catch(IllegalArgumentException e) { expected = true; }
+			assertTrue(expected, "expecting exception for null value to ECHO");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
