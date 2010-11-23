@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -16,10 +16,13 @@
 
 package org.jredis.ri.alphazero.connection;
 
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import org.jredis.ClientRuntimeException;
 import org.jredis.ProviderException;
 import org.jredis.RedisException;
 import org.jredis.connector.Connection;
+import org.jredis.connector.ConnectionReset;
 import org.jredis.connector.ConnectionSpec;
 import org.jredis.connector.NotConnectedException;
 import org.jredis.protocol.Command;
@@ -27,7 +30,6 @@ import org.jredis.protocol.Protocol;
 import org.jredis.protocol.Request;
 import org.jredis.protocol.Response;
 import org.jredis.protocol.ResponseStatus;
-import org.jredis.ri.alphazero.RedisVersion;
 import org.jredis.ri.alphazero.support.Assert;
 import org.jredis.ri.alphazero.support.Log;
 
@@ -46,33 +48,13 @@ public class SynchConnection extends ConnectionBase implements Connection {
 	// Properties
 	// ------------------------------------------------------------------------
 	
+	final private Lock lock;
 	
 	// ------------------------------------------------------------------------
 	// Constructors
 	// ------------------------------------------------------------------------
 	
 	/**
-	 * This constructor will pass the connection spec to the super class constructor and
-	 * create and install the {@link Protocol} handler delegate instance for this {@link SynchConnection}
-	 * for the {@link RedisVersion#current_revision}.  
-	 * 
-	 * @param connectionSpec
-	 * @throws ClientRuntimeException
-	 * @throws ProviderException
-	 */
-	public SynchConnection (
-			ConnectionSpec connectionSpec,
-			boolean 	   isShared
-		)
-		throws ClientRuntimeException, ProviderException 
-	{
-		this(connectionSpec, isShared, RedisVersion.current_revision);
-	}
-	
-	/**
-	 * All the constructors in this class delegate to this constructor and are
-	 * effectively provided for convenience.
-	 * <p>
 	 * This constructor will pass the connection spec to the super class constructor and
 	 * create and install the {@link Protocol} handler delegate instance for this {@link SynchConnection}.
 	 * If you definitely need to specify the redis server version, and the protocol implementation for that
@@ -88,13 +70,19 @@ public class SynchConnection extends ConnectionBase implements Connection {
 	 * @throws ProviderException if the version specified is not supported.
 	 */
 	public SynchConnection (
-			ConnectionSpec  connectionSpec,
-			boolean			isShared,
-			RedisVersion 	redisversion
+			ConnectionSpec  connectionSpec
 		)
 		throws ClientRuntimeException, ProviderException 
 	{
-		super (connectionSpec);
+		super (connectionSpec.setModality(Modality.Synchronous));
+		// REVU: huge flaw.  connection initialization occurs in constructor!!! stupid.
+		// TODO: change it.
+		if(spec.getConnectionFlag(Flag.RELIABLE))
+			lock = new ReentrantLock(false);
+		else{
+			lock = null;
+			spec.getConnectionFlag(Flag.RELIABLE);
+		}
 	}
 
 	// ------------------------------------------------------------------------
@@ -113,12 +101,26 @@ public class SynchConnection extends ConnectionBase implements Connection {
 	/* (non-Javadoc)
 	 * @see org.jredis.ri.alphazero.connection.ConnectionBase#serviceRequest(org.jredis.protocol.Command, byte[][])
 	 */
-	// TODO: not happy about the performance hit synchronized has caused ... but its required for heartbeat.
-	// is it worth it?
-	public synchronized Response serviceRequest (Command cmd, byte[]... args) 
+	public Response serviceRequest (Command cmd, byte[]... args) 
 		throws RedisException
+//	{
+//		Lock _lock = null;
+//		if(spec.getConnectionFlag(Flag.RELIABLE)) 
+//			_lock = acquireLock();
+//		
+//		Response r = null;
+//		
+//		try { r = _serviceRequest(cmd, args); }
+//		catch (Throwable t){ Log.error("serviceRequest cmd:%s %s:=>%s", t, t.getMessage());}
+//		finally { 
+//			if(_lock != null) releaseLock(); 
+//		}
+//		
+//		return r;
+//	}
+//	private Response _serviceRequest(Command cmd, byte[]... args)
+//		throws RedisException
 	{
-		
 		if(!isConnected()) throw new NotConnectedException ("Not connected!");
 		
 		Request  		request = null;
@@ -149,7 +151,7 @@ public class SynchConnection extends ConnectionBase implements Connection {
 			Log.problem ("serviceRequest() -- ClientRuntimeException  => " + cre.getLocalizedMessage());
 			reconnect();
 			
-			throw new ConnectionResetException ("Connection re-established but last request not processed:  " + cre.getLocalizedMessage());
+			throw new ConnectionReset ("Connection re-established but last request not processed:  " + cre.getLocalizedMessage());
 		}
 		catch (RuntimeException e){
 			e.printStackTrace();
@@ -160,7 +162,6 @@ public class SynchConnection extends ConnectionBase implements Connection {
 
 			throw new ClientRuntimeException("unexpected runtime exeption: " + e.getLocalizedMessage(), e);
 		}
-		
 		// 3 - Status
 		//
 		status = Assert.notNull (response.getStatus(), "status from response object", ProviderException.class);
@@ -174,5 +175,14 @@ public class SynchConnection extends ConnectionBase implements Connection {
 		}
 
 		return response;
+	}
+	@SuppressWarnings("unused")
+    private Lock acquireLock() {
+		lock.lock();
+		return lock;
+	}
+	@SuppressWarnings("unused")
+    private void releaseLock() {
+		lock.unlock();
 	}
 }

@@ -24,6 +24,7 @@ import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -31,7 +32,9 @@ import java.util.concurrent.Future;
 import org.jredis.ClientRuntimeException;
 import org.jredis.JRedisFuture;
 import org.jredis.ObjectInfo;
+import org.jredis.Query;
 import org.jredis.RedisException;
+import org.jredis.RedisType;
 import org.jredis.ZSetEntry;
 import org.jredis.protocol.Command;
 import org.jredis.protocol.ResponseStatus;
@@ -134,12 +137,12 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				String emptyset = "empty-set";
 				provider.sadd(emptyset, "delete-me");
 				provider.srem(emptyset, "delete-me");
-				assertEquals (provider.smembers(emptyset).get(), null, "smembers should return a null set"); // api change from empty to null
-				assertEquals (provider.srandmember(emptyset).get(), null, "random member of empty set should be null");
+				assertEquals(provider.smembers(emptyset).get(), Collections.EMPTY_LIST, "smembers should return an empty list");
+				assertEquals(provider.srandmember(emptyset).get(), null, "random member of empty set should be null");
 				
 				// non existent key
 				String nonsuch = "no-such-key";
-				assertEquals (provider.smembers(nonsuch).get(), null, "members of non existent key set should be null");
+				assertEquals(provider.smembers(nonsuch).get(), Collections.EMPTY_LIST, "members of non existent key set should be empty");
 				assertEquals (provider.srandmember(nonsuch).get(), null, "random member of non existent key set should be null");
 			}
 			catch(ExecutionException e){
@@ -320,8 +323,8 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				assertTrue(members.size() == scardResp.get().longValue(), "smembers should have returned a list of scard size");
 				
 				List<byte[]> members2 = smembersResp2.get();
-				assertTrue(scardResp2.get().longValue() == 0, "setkey2 should be zero"); // api change - empty keys are removed
-				assertEquals(members2, null, "smembers should have returned null"); // api change from empty to null
+				assertEquals(scardResp2.get().longValue(), 0, "setkey2 should be zero");
+				assertEquals(members2, Collections.EMPTY_LIST, "smembers should have returned empty");
 //				assertTrue(members2.size() == scardResp2.get().longValue(), "smembers should have returned a list of scard size");
 				
 			}
@@ -751,27 +754,54 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 		cmd = Command.SORT.code;
 		Log.log("TEST: %s command", cmd);
 
+		final String setkey = "set-key";
+		final String listkey = "list-key";
 		try {
 			provider.flushdb();
 			
-			String setkey = "set-key";
-			String listkey = "list-key";
 			for(int i=0; i<MEDIUM_CNT; i++){
 				provider.sadd(setkey, stringList.get(i));
 				provider.lpush(listkey, stringList.get(i));
 			}
 			
-			Future<List<byte[]>> sortListResp = provider.sort(listkey).ALPHA().LIMIT(0, 555).DESC().execAsynch();
+			int cnt1 = MEDIUM_CNT, cnt2 = 9, cnt3 = 1;
+			Future<List<byte[]>> sortListResp1 = provider.sort(listkey).ALPHA().LIMIT(0, cnt1).DESC().execAsynch();
+			Future<List<byte[]>> sortListResp2 = provider.sort(listkey).ALPHA().LIMIT(10, cnt2).DESC().execAsynch();
+			Future<List<byte[]>> sortListResp3 = provider.sort(listkey).ALPHA().LIMIT(MEDIUM_CNT-1, cnt3).DESC().execAsynch();
+			
 			Future<List<byte[]>> sortSetResp = provider.sort(setkey).ALPHA().LIMIT(0, 555).DESC().execAsynch();
 			
 			try {
+				assertEquals(sortListResp1.get().size(), cnt1, "expecting sort results of size MEDIUM_CNT");
+				assertEquals(sortListResp2.get().size(), cnt2, "expecting sort results of size 9");
+				assertEquals(sortListResp3.get().size(), cnt3, "expecting sort results of size 1");
+				
 				Log.log("TEST: SORTED LIST ");
-				for(String s : toStr(sortListResp.get()))
-					System.out.format("%s\n", s);
+				for(String s : toStr(sortListResp1.get()))
+					System.out.format("[t.1] %s\n", s);
+				
+				Log.log("TEST: SORTED LIST ");
+				for(String s : toStr(sortListResp2.get()))
+					System.out.format("[t.1] %s\n", s);
+				
+				Log.log("TEST: SORTED LIST ");
+				for(String s : toStr(sortListResp3.get()))
+					System.out.format("[t.1] %s\n", s);
 				
 				Log.log("TEST: SORTED SET ");
 				for(String s : toStr(sortSetResp.get()))
 					System.out.format("%s\n", s);
+				
+				String destKey = String.format("%s_store", listkey);
+				List<byte[]> ssres = provider.sort(listkey).ALPHA().LIMIT(0, MEDIUM_CNT).DESC().STORE(destKey).execAsynch().get();
+				assertNotNull(ssres, "result of srot with STORE should be non-null");
+				assertEquals(ssres.size(), 1, "result of sort with STORE should be a list of single entry (the stored list's size)");
+				long sortedListSize = Query.Support.unpackValue(ssres);
+				assertEquals(sortedListSize, MEDIUM_CNT);
+				RedisType type = provider.type(destKey).get();
+				assertEquals(type, RedisType.list, "dest key of SORT .. STORE should be a LIST");
+				long sslistSize = provider.llen(destKey).get();
+				assertEquals(sslistSize, sortedListSize, "result of SORT ... STORE and LLEN of destkey list should be same");
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -779,6 +809,27 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 			}
 		} 
 		catch (ClientRuntimeException e) {  fail(cmd + " Runtime ERROR => " + e.getLocalizedMessage(), e);  }
+		
+		// force errors
+		
+		// count can't be zero
+		Runnable invalidLimitSpec = new Runnable() {
+			public void run() {
+				try { provider.sort(listkey).ALPHA().LIMIT(0, 0).DESC().exec(); }
+                catch (Throwable t) { throw new RuntimeException ("", t); }
+			}
+		};
+		assertDidRaiseRuntimeError(invalidLimitSpec, RuntimeException.class);
+		
+		// LIMIT from must be positive, {0...n}
+		Runnable invalidLimitSpec2 = new Runnable() {
+			public void run() {
+				try { provider.sort(listkey).ALPHA().LIMIT(-1, 1).DESC().exec(); }
+                catch (Throwable t) { throw new RuntimeException ("", t); }
+			}
+		};
+		assertDidRaiseRuntimeError(invalidLimitSpec2, RuntimeException.class);
+		
 	}
 	
 	@Test
@@ -1568,9 +1619,8 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				
 				List<String> hkeys = hkeysResp1.get(); 
 				assertEquals (hkeys.size(), 4, "keys list size should be 4");
-				assertNull (hkeysResp2.get(), "result should be null"); // api change from empty to null
-				assertEquals (hkeysResp3.get(), null, "list of keys of non-existent hash should be null");
-
+				assertEquals(hkeysResp2.get(), Collections.EMPTY_LIST, "result should be empty");
+				assertEquals(hkeysResp3.get(), Collections.EMPTY_LIST, "list of keys of non-existent hash should be empty");
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -1617,9 +1667,9 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				assertTrue (hsetResp4.get(), "hset using Object value");
 				
 				List<byte[]> hvals = hvalsResp1.get(); 
-				assertEquals (hvals.size(), 4, "values list size should be 4");
-				assertEquals (hvalsResp2.get(), null, "values list size should be null"); // used to be empty but api changed
-				assertEquals (hvalsResp3.get(), null, "list of values of non-existent hash should be null");
+				assertEquals(hvals.size(), 4, "values list size should be 4");
+				assertEquals(hvalsResp2.get(), Collections.EMPTY_LIST, "values list size should be empty");
+				assertEquals(hvalsResp3.get(), Collections.EMPTY_LIST, "list of values of non-existent hash should be empty");
 
 			}
 			catch(ExecutionException e){
@@ -1681,10 +1731,10 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 				assertEquals(DefaultCodec.decode(hmap.get(keys.get(4))), objectList.get(0), "Object value mapping should correspond to prior HSET");
 				
 				Map<String, byte[]> hmap2 = frHmap2.get();
-				assertEquals( hmap2, null, "result should be null"); // api change from empty to null result
+				assertEquals(hmap2, Collections.EMPTY_MAP, "result should be empty");
 				
 				Map<String, byte[]> hmap3 = frHmap3.get();
-				assertEquals( hmap3, null, "hgetall for non existent hash should be null");
+				assertEquals(hmap3, Collections.EMPTY_MAP, "hgetall for non existent hash should be empty");
 			}
 			catch(ExecutionException e){
 				Throwable cause = e.getCause();
@@ -2116,18 +2166,17 @@ public abstract class JRedisFutureProviderTestsBase extends JRedisTestSuiteBase<
 			String keyToExpire = "expire-me";
 			provider.set(keyToExpire, dataList.get(0)).get();
 
-			long expireTime = System.currentTimeMillis() + 500;
 			Log.log("TEST: %s with expire time 1000 msecs in future", Command.EXPIREAT);
-			assertTrue(provider.expireat(keyToExpire, expireTime).get(), "expireat for existing key should be true");
-			assertTrue(!provider.expireat("no-such-key", expireTime).get(), "expireat for non-existant key should be false");
-			assertTrue (provider.exists(keyToExpire).get());
+			assertTrue(provider.expireat(keyToExpire, System.currentTimeMillis() + 2000).get(), "expireat for existing key should be true");
+      assertTrue (provider.exists(keyToExpire).get());
+			assertTrue(!provider.expireat("no-such-key", System.currentTimeMillis() + 500).get(), "expireat for non-existant key should be false");
 			
 			
 			// NOTE: IT SIMPLY WON'T WORK WITHOUT GIVING REDIS A CHANCE
 			// could be network latency, or whatever, but the expire command is NOT
 			// that precise, so we need to wait a bit longer
 			
-			Thread.sleep(2000);
+			Thread.sleep(5000);
 			assertTrue (!provider.exists(keyToExpire).get(), "key should have expired by now");
 		}
         catch (ExecutionException e) {

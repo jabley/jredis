@@ -16,6 +16,7 @@
 
 package org.jredis.ri.alphazero.connection;
 
+import org.jredis.connector.ConnectionException;
 import org.jredis.ri.alphazero._specification;
 
 

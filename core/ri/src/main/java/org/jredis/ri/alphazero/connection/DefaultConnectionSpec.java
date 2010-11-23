@@ -1,22 +1,30 @@
 package org.jredis.ri.alphazero.connection;
 
-import static org.jredis.connector.ConnectionSpec.SocketFlag.SO_KEEP_ALIVE;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_BANDWIDTH;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_CONN_TIME;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_LATENCY;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_RCVBUF;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_SNDBUF;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_TIMEOUT;
+import static org.jredis.connector.Connection.Flag.CONNECT_IMMEDIATELY;
+import static org.jredis.connector.Connection.Flag.PIPELINE;
+import static org.jredis.connector.Connection.Flag.RELIABLE;
+import static org.jredis.connector.Connection.Flag.SHARED;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_BANDWIDTH;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_CONN_TIME;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_LATENCY;
+import static org.jredis.connector.Connection.Socket.Property.SO_RCVBUF;
+import static org.jredis.connector.Connection.Socket.Property.SO_SNDBUF;
+import static org.jredis.connector.Connection.Socket.Property.SO_TIMEOUT;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import org.jredis.ClientRuntimeException;
 import org.jredis.connector.Connection;
 import org.jredis.connector.ConnectionSpec;
+import org.jredis.connector.Connection.Flag;
+import org.jredis.connector.Connection.Modality;
+import org.jredis.ri.alphazero.protocol.DefaultProtocolFactory;
 import org.jredis.ri.alphazero.support.Assert;
 
 /**
  * Default connection spec provides the following default values for a connection.  See
  * {@link ConnectionSpec} for details of these properties and flags.
+ * <p>
+ * The default {@link Modality} for the {@link Connection} is {@link Modality#Synchronous}.
  * <p>
  * This {@link ConnectionSpec} is configured to prefer bandwidth and relatively large (48K)
  * buffers (which is probably less than your OS's default buffer sizes anyway, but you never know).
@@ -34,10 +42,16 @@ import org.jredis.ri.alphazero.support.Assert;
  * @since   alpha.0
  * 
  */
-public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
+final public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	// ------------------------------------------------------------------------
 	// Consts
 	// ------------------------------------------------------------------------
+	
+	static final int DEFAULT_REDIS_PORT = 6379;
+	static final String DEFAULT_REDIS_HOST_NAME = "localhost";
+	static final int DEFAULT_REDIS_DB = 0;
+	static final byte[] DEFAULT_REDIS_PASSWORD = null;
+	
 	/** defaults to 3 */
 	static final int DEFAULT_RECONNECT_CNT = 3;
 	/** defautls to 48KB */
@@ -57,9 +71,21 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	/** thrid priority pref is connection time */
 	private static final int DEFAULT_SO_PREF_CONN_TIME = 2;
 	
-	private static final boolean DEFAULT_IS_SHARED = true;
-	private static final boolean DEFAULT_IS_RELIABLE = false;
-	private static final boolean DEFAULT_IS_PIPELINE = false;
+	/** def value: <code>true</code> */
+	private static final boolean DEFAULT_CF_SHARED = true;
+	/** def value: <code>false</code> */
+	private static final boolean DEFAULT_CF_RELIABLE = false;
+	/** def value: <code>false</code> */
+	private static final boolean DEFAULT_CF_PIPELINE = false;
+	/** def value: <code>true</code> */
+	private static final boolean DEFAULT_CF_CONNECT_IMMEDIATELY = true;
+	/** def value: <code>true</code> */
+	private static final boolean DEFAULT_CF_STATEFUL = false;
+	
+	/** def value: <code>Modality.Synchronous</code> */
+	private static final Modality DEFAULT_CP_CONN_MODALITY = Modality.Synchronous;
+	/** def value: <code>3</code> */
+	private static final Integer DEFAULT_CP_MAX_CONNECT_ATTEMPT = 3;
 	
 	// ------------------------------------------------------------------------
 	// Constructors
@@ -70,6 +96,17 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	 * @param port
 	 * @throws ClientRuntimeException for invalid port, or null address values
 	 */
+	public DefaultConnectionSpec () throws ClientRuntimeException {
+//		Log.debug("Yo!");
+		setDefaultValues();
+	}
+	/**
+	 * Instantiates a default connection spec for the given host and port.
+	 * @param address
+	 * @param port
+	 * @throws ClientRuntimeException for invalid port, or null address values
+	 */
+	@Deprecated
 	public DefaultConnectionSpec (InetAddress address, int port) throws ClientRuntimeException {
 		this (address, port, 0, null);
 	}
@@ -81,25 +118,32 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	 * @param credentials
 	 * @throws ClientRuntimeException for invalid port, or null address values
 	 */
+	@Deprecated
 	public DefaultConnectionSpec (InetAddress address, int port, int database, byte[] credentials) throws ClientRuntimeException {
+		this();
 		setPort(Assert.inRange (port, 1, 65534, "port init parameter for DefaultConnectionSpec", ClientRuntimeException.class));
 		setAddress(Assert.notNull(address, "address init parameter for DefaultConnectionSpec", ClientRuntimeException.class));
 		setDatabase(database);
 		setCredentials(credentials);
-		
-		setDefaultProperties();
 	}
 	/**
-     * Set the default values for the {@link SocketFlag}s and {@link SocketProperty}s and various
+     * Set the default values for the {@link ConnectionSpec}
      * other properties.
-     * @See {@link ConnectionSpec}
+     * @see ConnectionSpec
+     * @see Connection.Property
+     * @see Connection.Property
+     * @see Connection.Flag
+     * @see Connection.Socket.Flag
+     * @see Connection.Socket.Property
+     * @see DefaultConnectionFactory
+     * @see DefaultProtocolFactory
      */
-    private void setDefaultProperties () {
+    private void setDefaultValues () {
     	// reconnect try count
     	setReconnectCnt(DEFAULT_RECONNECT_CNT);
     	
     	//  tcp socket flags
-    	setSocketFlag(SO_KEEP_ALIVE, true);
+    	setSocketFlag(Connection.Socket.Flag.SO_KEEP_ALIVE, true);
     	
     	// tcp socket flags
     	setSocketProperty(SO_TIMEOUT, DEFAULT_READ_TIMEOUT_MSEC);
@@ -109,9 +153,17 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
     	setSocketProperty(SO_PREF_CONN_TIME, DEFAULT_SO_PREF_CONN_TIME);
     	setSocketProperty(SO_PREF_LATENCY, DEFAULT_SO_PREF_LATENCY);
     	
-    	isReliable(DEFAULT_IS_RELIABLE);
-    	isShared(DEFAULT_IS_SHARED);
-    	isPipeline(DEFAULT_IS_PIPELINE);
+    	setConnectionFlag(RELIABLE, DEFAULT_CF_RELIABLE);
+    	setConnectionFlag(SHARED, DEFAULT_CF_SHARED);
+    	setConnectionFlag(PIPELINE, DEFAULT_CF_PIPELINE);
+    	setConnectionFlag(CONNECT_IMMEDIATELY, DEFAULT_CF_CONNECT_IMMEDIATELY);
+    	setConnectionFlag(Flag.STATEFUL, DEFAULT_CF_STATEFUL);
+    	
+    	setConnectionProperty(Connection.Property.MODALITY, DEFAULT_CP_CONN_MODALITY);
+    	setConnectionProperty(Connection.Property.MAX_CONNECT_ATTEMPT, DEFAULT_CP_MAX_CONNECT_ATTEMPT);
+    	setConnectionProperty(Connection.Property.PROTOCOL_FACTORY, new DefaultProtocolFactory());
+    	setConnectionProperty(Connection.Property.CONNECTION_FACTORY, new DefaultConnectionFactory());
+    	
     	setHeartbeat(DEFAULT_HEARTBEAT_SEC);
     }
 	// ------------------------------------------------------------------------
@@ -124,7 +176,7 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 	public static final ConnectionSpec newSpec () 
 		throws ClientRuntimeException 
 	{
-		return newSpec ("localhost", 6379, 0, null);
+		return newSpec (DEFAULT_REDIS_HOST_NAME, DEFAULT_REDIS_PORT, DEFAULT_REDIS_DB, DEFAULT_REDIS_PASSWORD);
 	}
 
 	/**
@@ -175,6 +227,9 @@ public class DefaultConnectionSpec extends ConnectionSpec.RefImpl {
 		) 
 		throws ClientRuntimeException 
 	{
-		return new DefaultConnectionSpec(address, port, database, credentials);
+//		return new DefaultConnectionSpec(address, port, database, credentials);
+		ConnectionSpec spec = new DefaultConnectionSpec();
+		return spec.setAddress(address).setPort(port).setDatabase(database).setCredentials(credentials);
+		
 	}
 }

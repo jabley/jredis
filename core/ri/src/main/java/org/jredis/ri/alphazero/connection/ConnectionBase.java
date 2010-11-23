@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -16,19 +16,19 @@
 
 package org.jredis.ri.alphazero.connection;
 
-import static org.jredis.connector.ConnectionSpec.SocketFlag.SO_KEEP_ALIVE;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_BANDWIDTH;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_CONN_TIME;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_PREF_LATENCY;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_RCVBUF;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_SNDBUF;
-import static org.jredis.connector.ConnectionSpec.SocketProperty.SO_TIMEOUT;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_BANDWIDTH;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_CONN_TIME;
+import static org.jredis.connector.Connection.Socket.Property.SO_PREF_LATENCY;
+import static org.jredis.connector.Connection.Socket.Property.SO_RCVBUF;
+import static org.jredis.connector.Connection.Socket.Property.SO_SNDBUF;
+import static org.jredis.connector.Connection.Socket.Property.SO_TIMEOUT;
 import static org.jredis.ri.alphazero.support.Assert.notNull;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.Socket;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import org.jredis.ClientRuntimeException;
@@ -37,11 +37,11 @@ import org.jredis.ProviderException;
 import org.jredis.RedisException;
 import org.jredis.connector.Connection;
 import org.jredis.connector.ConnectionSpec;
+import org.jredis.connector.Connection.Event.Type;
 import org.jredis.protocol.Command;
 import org.jredis.protocol.Protocol;
 import org.jredis.protocol.Response;
-import org.jredis.ri.alphazero.protocol.SynchProtocol;
-import org.jredis.ri.alphazero.protocol.ConcurrentSynchProtocol;
+import org.jredis.ri.alphazero.protocol.DefaultProtocolFactory;
 import org.jredis.ri.alphazero.support.Assert;
 import org.jredis.ri.alphazero.support.Convert;
 import org.jredis.ri.alphazero.support.FastBufferedInputStream;
@@ -63,7 +63,7 @@ import org.jredis.ri.alphazero.support.Log;
  * 
  */
 
-public abstract class ConnectionBase implements Connection {
+public abstract class ConnectionBase implements Connection{
 
 	// ------------------------------------------------------------------------
 	// Properties
@@ -73,44 +73,27 @@ public abstract class ConnectionBase implements Connection {
 	protected Protocol 			protocol;
 	
 	/** Connection specs used to create this {@link Connection} */
-	final 
-	protected ConnectionSpec  	spec;
+	final protected ConnectionSpec  	spec;
 	
+	private boolean 			isConnected = false;
+	/** socket reference -- a new instance obtained in {@link ConnectionBase#newSocketConnect()} */
+	private java.net.Socket		socket;
 	private InputStream		    instream;
 	private OutputStream	    outstream;
+	
+	/** Connector Listeners */
+	final private Set<Connection.Listener> listeners = new HashSet<Connection.Listener>();
 
-	private boolean 			isConnected = false;
-	
-	/** PINGs for heartbeat */
-	private HeartbeatJinn			heartbeat;
+//	/** Keep-alive heartbeat daemon thread  */
+//	private HeartbeatJinn			heartbeat;
 
-	// ------------------------------------------------------------------------
-	// Internal use fields
-	// ------------------------------------------------------------------------
-	
-	
 	/** address of the socket connection */
 	private final InetSocketAddress  	socketAddress;
 	
-	/** socket reference -- a new instance obtained in {@link ConnectionBase#newSocketConnect()} */
-	private Socket	socket;
 	
 	// ------------------------------------------------------------------------
 	// Constructors
 	// ------------------------------------------------------------------------
-	
-	/**
-	 * Will create and initialize a socket per the connection spec. Will connect immediately.
-	 * 
-	 * @See {@link ConnectionSpec}
-	 * @param spec
-	 * @throws ClientRuntimeException if connection attempt to specified host is not possible.
-	 */
-	protected ConnectionBase (ConnectionSpec spec) 
-		throws ClientRuntimeException
-	{
-		this(spec, true);
-	}
 	
 	/**
 	 * Will create and initialize a socket per the connection spec.
@@ -120,16 +103,13 @@ public abstract class ConnectionBase implements Connection {
 	 * @throws ClientRuntimeException if connection attempt to specified host is not possible and
 	 * connect immediate was requested.
 	 */
-	protected ConnectionBase (ConnectionSpec spec, boolean connectImmediately) 
+	protected ConnectionBase (ConnectionSpec spec) 
 		throws ClientRuntimeException
 	{
 		try {
 			this.spec = notNull(spec, "ConnectionSpec init parameter", ClientRuntimeException.class);
 			socketAddress = new InetSocketAddress(spec.getAddress(), spec.getPort());
 			initializeComponents();
-//			if(connectImmediately) {
-//				connect ();
-//			}
 		}
 		catch (IllegalArgumentException e) { 
 			throw new ClientRuntimeException 
@@ -138,10 +118,22 @@ public abstract class ConnectionBase implements Connection {
 		catch (Exception e) {
 			throw new ProviderException("Unexpected error on initialize -- BUG", e);
 		} 
-		
-		if(connectImmediately) { connect (); }
+		// TODO: problematic in constructor.
+		if(spec.getConnectionFlag(Flag.CONNECT_IMMEDIATELY)) { 
+			connect (); 
+		}
 	}
-	
+	/*
+	 * TDOD: this is the right way but breaks some assumptions in various impls.
+	 * - need to add INITIALIZED state and go from there.
+	 */
+//	@Override
+//	public void initialize() throws ClientRuntimeException, ProviderException {
+//		if(spec.getConnectionFlag(Flag.CONNECT_IMMEDIATELY)) { 
+//			connect (); 
+//		}
+//	}
+
 	// ------------------------------------------------------------------------
 	// Interface
 	// ============================================================ Connection
@@ -151,8 +143,8 @@ public abstract class ConnectionBase implements Connection {
 	// ------------------------------------------------------------------------
 
 //	@Override
-	public ConnectionSpec getSpec() {
-		return spec;
+	public ConnectionSpec getSpec () {
+		return this.spec;
 	}
 	
 //	@Override
@@ -174,6 +166,27 @@ public abstract class ConnectionBase implements Connection {
 	}
 	
 	// ------------------------------------------------------------------------
+	// Event management
+
+	/**
+	 * Optional
+	 * @param connListener
+	 * @return
+	 */
+	final public boolean addListener(Listener connListener){
+		return listeners.add(connListener);
+	}
+
+	/**
+	 * Optional
+	 * @param connListener
+	 * @return
+	 */
+	final public boolean removeListener(Listener connListener){
+		return listeners.remove(connListener);
+	}
+	
+	// ------------------------------------------------------------------------
 	// Internal ops : Extension points
 	// ------------------------------------------------------------------------
 	/**
@@ -192,9 +205,10 @@ public abstract class ConnectionBase implements Connection {
     protected void initializeComponents () {
 		setProtocolHandler (Assert.notNull (newProtocolHandler(), "the delegate protocol handler", ClientRuntimeException.class));
 
-		if(spec.isReliable()){
-	    	heartbeat = new HeartbeatJinn(this, this.spec.getHeartbeat(), "connection [" + hashCode() + "] heartbeat");
-	    	heartbeat.start();
+		if(spec.getConnectionFlag(Connection.Flag.RELIABLE)){
+			Log.log("WARNING: heartbeat is disabled.");
+//	    	heartbeat = new HeartbeatJinn(this, this.spec.getHeartbeat(), " [" + this + "] heartbeat");
+//	    	heartbeat.start();
 		}
     }
 
@@ -204,9 +218,7 @@ public abstract class ConnectionBase implements Connection {
      * heartbeats) is required!.
      */
     protected void notifyConnected () {
-    	if (spec.isReliable()){
-	    	heartbeat.notifyConnected();
-    	}
+    	notifyListeners(new Event(this, Type.CONNECTED));
     }
     /**
      * Extension point -- callback on this method when {@link ConnectionBase} has disconnected from server.
@@ -214,16 +226,25 @@ public abstract class ConnectionBase implements Connection {
      * heartbeats) is required!.
      */
     protected void notifyDisconnected () {
-    	if (spec.isReliable()){
-	    	heartbeat.notifyDisconnected();
-    	}
+    	notifyListeners(new Event(this, Type.DISCONNECTED));
+    }
+    
+    protected void notifyFaulted (String info) {
+    	notifyListeners(new Event(this, Type.FAULTED, info));
+    }
+    protected void notifyShutingDown () {
+    	notifyListeners(new Event(this, Type.SHUTDOWN));
     }
     /**
      * Extension point:  child classes may override to return specific {@link Protocol} implementations per their requirements.
      * @return
      */
     protected Protocol newProtocolHandler () {
-		return spec.isShared() ? new ConcurrentSynchProtocol() : new SynchProtocol();	// TODO: rewire it to get it from the ProtocolManager
+    	Protocol.Factory protfac = (Protocol.Factory) spec.getConnectionProperty(Property.PROTOCOL_FACTORY); 
+    	if(protfac == null) protfac = new DefaultProtocolFactory();
+    	return protfac.newProtocol(spec);
+//
+//    	return (new DefaultProtocolFactory()).newProtocol(spec);
     }
     
     /**
@@ -244,9 +265,16 @@ public abstract class ConnectionBase implements Connection {
     protected OutputStream newOutputStream(OutputStream socketOutputStream) { return socketOutputStream; }
     
 	// ------------------------------------------------------------------------
+	// Inner ops: event management
+	// ------------------------------------------------------------------------
+	final protected void notifyListeners(Connection.Event e) {
+		for(Connection.Listener l : listeners)
+			l.onEvent(e);
+	}
+
+	// ------------------------------------------------------------------------
 	// Inner ops: socket and connection management
 	// ------------------------------------------------------------------------
-
 	/** @return connected status*/
 	protected final boolean isConnected () { return isConnected; }
 	
@@ -268,12 +296,32 @@ public abstract class ConnectionBase implements Connection {
 			catch (RuntimeException e){
 				Log.error("while attempting reconnect: " + e.getMessage());
 				if(++attempts == spec.getReconnectCnt()) {
-					Log.problem("Retry limit exceeded attempting reconnect.");
-					throw new ClientRuntimeException ("Failed to reconnect to the server.");
+//					Log.problem("Retry limit exceeded attempting reconnect.");
+					
+					onConnectionFault("Reconnect retry limit exceeded.  Failed to reconnect to the server after " + attempts + " reconnect attempts");
+//					throw new ClientRuntimeException ("Failed to reconnect to the server.");
 				}
 			}
 		}
 	}
+	/**
+	 * Will throw a {@link ClientRuntimeException}
+	 * @throws IllegalStateException
+	 */
+	protected final void onConnectionFault (String fault) throws ClientRuntimeException {
+		onConnectionFault(fault, true);
+	}
+	/**
+	 * Will throw a {@link ClientRuntimeException} if raiseEx is true
+	 * @throws IllegalStateException
+	 */
+	protected final void onConnectionFault (String fault, boolean raiseEx) throws ClientRuntimeException {
+		notifyFaulted(fault);
+		Log.problem("Conn FAULT: %s - %s", fault, this);
+ 		if(raiseEx) 
+ 			throw new ClientRuntimeException(fault);
+	}
+
 	/**
 	 * @throws IOException
 	 * @throws IllegalStateException
@@ -288,8 +336,9 @@ public abstract class ConnectionBase implements Connection {
 			newSocketConnect();
 		} 
 		catch (IOException e) {
-			throw new ClientRuntimeException(
-				"Socket connect failed -- make sure the server is running at " + spec.getAddress().getHostName(), e);
+			onConnectionFault("Socket connect failed [cause: "+e+"] -- make sure the server is running at " + spec.getAddress().getHostName());
+//			throw new ClientRuntimeException(
+//				"Socket connect failed -- make sure the server is running at " + spec.getAddress().getHostName(), e);
 		}
 		
 		// get the streams
@@ -304,7 +353,7 @@ public abstract class ConnectionBase implements Connection {
 		isConnected = true;
 		
 		try {
-	        initializeConnection();
+	        initializeOnConnect();
         }
         catch (RedisException e) {
         	// either authorize or db select is using invalid parameters
@@ -312,7 +361,7 @@ public abstract class ConnectionBase implements Connection {
         	throw new IllegalArgumentException("Failed to connect -- check credentials and/or database settings for the connection spec", e);
         }
 		
-//		Log.log("RedisConnection - connected");
+		Log.debug ("CONNECTED | conn: %s", toString());
 		notifyConnected();
 	}
 
@@ -326,7 +375,14 @@ public abstract class ConnectionBase implements Connection {
 		isConnected = false;
 
 		notifyDisconnected();
-//		Log.log("RedisConnection - disconnected");
+		Log.debug ("DISCONNECTED | conn: %s", toString());
+	}
+	
+	/**
+	 * @throws IllegalStateException
+	 */
+	protected final void shutdown () throws IllegalStateException {
+		notifyShutingDown();
 	}
 	
 	/**
@@ -343,10 +399,10 @@ public abstract class ConnectionBase implements Connection {
 	private final void newSocketConnect () 
 		throws IOException 
 	{
-		socket = new Socket ();
+		socket = new java.net.Socket ();
 		
 		socket.setKeepAlive (
-				spec.getSocketFlag (SO_KEEP_ALIVE));
+				spec.getSocketFlag (Connection.Socket.Flag.SO_KEEP_ALIVE));
 		
 		socket.setPerformancePreferences(
 				spec.getSocketProperty (SO_PREF_CONN_TIME),
@@ -400,8 +456,8 @@ public abstract class ConnectionBase implements Connection {
 	 * @throws ProviderException 
      * 
      */
-    protected final void initializeConnection () throws ProviderException, ClientRuntimeException, RedisException{
-    	switch (getModality()){
+    protected final void initializeOnConnect () throws ProviderException, ClientRuntimeException, RedisException{
+    	switch (spec.getModality()){
 			case Asynchronous:
 				initializeAsynchConnection();
 				break;
@@ -409,7 +465,7 @@ public abstract class ConnectionBase implements Connection {
 				initializeSynchConnection();
 				break;
 			default:
-				throw new ProviderException("Modality " + getModality().name() + " is not supported.");
+				throw new ProviderException("Modality " + spec.getModality().name() + " is not supported.");
     	}
     }
 
@@ -458,6 +514,11 @@ public abstract class ConnectionBase implements Connection {
         }
     }
 	
+    @Override
+    public String toString() {
+//    	String selfdesc = String.format("%s@%d", getClass().getSimpleName(), hashCode());
+    	return String.format("Connection: %-12s %s:%d db:%d | %s@%d", spec.getModality().name().toUpperCase(), spec.getAddress(), spec.getPort(), spec.getDatabase(), getClass().getSimpleName(), hashCode());
+    }
 	// ------------------------------------------------------------------------
 	// Property accessors
 	// ------------------------------------------------------------------------

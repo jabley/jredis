@@ -16,6 +16,8 @@
 
 package org.jredis.examples;
 
+import static org.jredis.connector.Connection.Socket.Property.SO_RCVBUF;
+import static org.jredis.connector.Connection.Socket.Property.SO_SNDBUF;
 import static org.jredis.ri.alphazero.support.DefaultCodec.toLong;
 import static org.jredis.ri.alphazero.support.DefaultCodec.toStr;
 import java.util.Random;
@@ -27,7 +29,6 @@ import org.jredis.RedisException;
 import org.jredis.bench.Util;
 import org.jredis.bench.Util.Timer;
 import org.jredis.connector.ConnectionSpec;
-import org.jredis.connector.ConnectionSpec.SocketProperty;
 import org.jredis.protocol.ResponseStatus;
 import org.jredis.ri.alphazero.JRedisPipeline;
 import org.jredis.ri.alphazero.connection.DefaultConnectionSpec;
@@ -51,13 +52,13 @@ public class PipelineInAction {
     	final ConnectionSpec spec = DefaultConnectionSpec.newSpec();
     	spec.setCredentials("jredis".getBytes());
     	spec.setDatabase(13);
-    	spec.setSocketProperty(SocketProperty.SO_RCVBUF, 1024 * 512);
-    	spec.setSocketProperty(SocketProperty.SO_SNDBUF, 1024 * 512);
+    	spec.setSocketProperty(SO_RCVBUF, 1024 * 24);
+    	spec.setSocketProperty(SO_SNDBUF, 1024 * 24);
     	
     	usingSynchSemantics(spec);
     	final boolean forever = true;
     	
-    	runJRedisPipelineSET (spec, 10000, 3, forever);
+    	runJRedisPipelineSET (spec, 100000, 3, forever);
 	}
     /**
      * @param spec

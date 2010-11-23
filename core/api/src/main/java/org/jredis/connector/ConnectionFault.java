@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -13,26 +13,32 @@
  *   See the License for the specific language governing permissions and
  *   limitations under the License.
  */
+
 package org.jredis.connector;
 
-import org.jredis.NotSupportedException;
-import org.jredis.protocol.Protocol;
+import java.net.SocketException;
+import org.jredis._specification;
 
 /**
  * [TODO: document me!]
  *
- * @author  Joubin Houshyar (alphazero@sensesay.net)
- * @version alpha.0, 04/02/09
- * @since   alpha.0
+ * @author  joubin (alphazero@sensesay.net)
+ * @date    Sep 12, 2010
  * 
  */
-public interface ProtocolFactory {
-	
+
+public class ConnectionFault extends ConnectionException {
+	/**  */
+	private static final long serialVersionUID = _specification.Version.major;
+
 	/**
-	 * Creates a protocol handler for the redis version specified.
-	 * @param redisVersion which the handler should support.  (e.g. "0.09")
-	 * @return
-	 * @throws NotSupportedException
+	 * @param string
+	 * @param e
 	 */
-	public Protocol createProtocolHandler (Connection.Modality modality, String redisVersion) throws NotSupportedException; 	
+	public ConnectionFault(String msg, SocketException e) {
+		super(msg, e);
+	}
+	public ConnectionFault(String msg) {
+		super(msg);
+	}
 }

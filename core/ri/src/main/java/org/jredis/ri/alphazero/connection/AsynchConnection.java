@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -26,7 +26,6 @@ import org.jredis.ProviderException;
 import org.jredis.connector.Connection;
 import org.jredis.connector.ConnectionSpec;
 import org.jredis.connector.NotConnectedException;
-import org.jredis.connector.ConnectionSpec.SocketProperty;
 import org.jredis.protocol.Command;
 import org.jredis.protocol.Protocol;
 import org.jredis.protocol.Request;
@@ -63,12 +62,12 @@ public class AsynchConnection extends ConnectionBase implements Connection {
 	// Constructors
 	// ------------------------------------------------------------------------
 	public AsynchConnection (
-			ConnectionSpec connectionSpec,
-			boolean 	   isShared
+			ConnectionSpec connectionSpec
 		)
 		throws ClientRuntimeException, ProviderException 
 	{
-		super (connectionSpec);
+		super (connectionSpec.setModality(Modality.Asynchronous));
+//		super (connectionSpec); // should be - really need an assert
 	}
 
 	// ------------------------------------------------------------------------
@@ -105,8 +104,8 @@ public class AsynchConnection extends ConnectionBase implements Connection {
     	
     	InputStream in = super.newInputStream(socketInputStream);
     	if(!(in instanceof FastBufferedInputStream)){
-    		System.out.format("WARN: input was: %s\n", in.getClass().getCanonicalName());
-    		in = new FastBufferedInputStream (in, spec.getSocketProperty(SocketProperty.SO_RCVBUF));
+    		Log.log(String.format("WARN: input was: %s\n", in.getClass().getCanonicalName()));
+    		in = new FastBufferedInputStream (in, spec.getSocketProperty(Connection.Socket.Property.SO_RCVBUF));
     	}
     	return in;
     }
@@ -162,7 +161,6 @@ public class AsynchConnection extends ConnectionBase implements Connection {
 				try {
 	                pending = pendingQueue.take();
 					try {
-//						System.out.format("%s\n", pending.cmd.code);
 						Request request = Assert.notNull(protocol.createRequest (pending.cmd, pending.args), "request object from handler", ProviderException.class);
 						request.write(getOutputStream());
 						
@@ -186,7 +184,7 @@ public class AsynchConnection extends ConnectionBase implements Connection {
 						pending.setCRE(cre);
 					}
 					catch (RuntimeException e){
-						Log.error ("Unexpected (and not handled) RuntimeException: " + e.getLocalizedMessage());
+						Log.logger.error("Unexpected RuntimeException ", e);
 						e.printStackTrace();
 						pending.setCRE(new ProviderException("Unexpected runtime exception in response handler"));
 						pending.setResponse(null);

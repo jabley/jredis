@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -711,7 +711,7 @@ public interface JRedis {
 	public List<byte[]> zrevrange (String setkey, long from, long to) throws RedisException; 
 
 	/**
-	 * Equivalent to {@link JRedis#zrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Equivalent to {@link JRedis#zrange(String, long, long)} with the {@link Option.Options#WITHSCORES}.
 	 * Unlike the general ZRANGE command that only returns the values, this method returns both
 	 * values and associated scores for the specified range.
 	 *  
@@ -727,7 +727,7 @@ public interface JRedis {
 	public List<ZSetEntry> zrangeSubset (String setkey, long from, long to) throws RedisException; 
 
 	/**
-	 * Equivalent to {@link JRedis#zrevrange(String, long, long)} with the {@link Command.Options#WITHSCORES}.
+	 * Equivalent to {@link JRedis#zrevrange(String, long, long)} with the {@link Option.Options#WITHSCORES}.
 	 * Unlike the general ZREVRANGE command that only returns the values, this method returns both
 	 * values and associated scores for the specified range.
 	 *  
@@ -770,7 +770,7 @@ public interface JRedis {
 	 * @return number of removed elements
 	 * @throws RedisException
 	 */
-	public long zremrangebyrank (String setkey, double minRank, double maxRank) throws RedisException; 
+	public long zremrangebyrank (String setkey, long minRank, long maxRank) throws RedisException; 
 
 	/**
 	 * @Redis ZINCRBY
@@ -914,21 +914,22 @@ public interface JRedis {
 	@Redis(versions="1.3.n")
 	public Map<String, byte[]> hgetall(String key)  throws RedisException;
 	
-//	// ------------------------------------------------------------------------
-//	// Transactional commands
-//	// ------------------------------------------------------------------------
-//	/**
-//	 * one option is to return a subclass of JRedis (e.g. JRedisCommandSequence)
-//	 * and have that interface declare discard and multi.  Benefit is being able
-//	 * to associate state with the transaction.
-//	 * @throws RedisException
-//	 */
-//	@Redis(versions="1.3")
-//	public void multi() throws RedisException;
-//	/**
-//	 * @throws RedisException
-//	 */
-//	public void discard () throws RedisException;
+	// ------------------------------------------------------------------------
+	// Transactional commands
+	// ------------------------------------------------------------------------
+	/**
+	 * one option is to return a subclass of JRedis (e.g. JRedisCommandSequence)
+	 * and have that interface declare discard and multi.  Benefit is being able
+	 * to associate state with the transaction.
+	 * @throws RedisException
+	 */
+	@Redis(versions="2.0")
+	public JRedis multi() throws RedisException;
+	/**
+	 * @throws RedisException
+	 */
+	@Redis(versions="2.0")
+	public JRedis discard () throws RedisException;
 	
 	// ------------------------------------------------------------------------
 	// Multiple databases handling commands

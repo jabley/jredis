@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -48,7 +48,8 @@ import org.jredis.ri.alphazero.support.Convert;
 import org.jredis.ri.alphazero.support.DefaultCodec;
 import org.jredis.ri.alphazero.support.SortSupport;
 import org.jredis.semantics.KeyCodec;
-
+import org.jredis.ri.RI.Release;
+import static org.jredis.ri.RI.*;
 /**
  * 
  * [TODO: document me!]
@@ -1013,11 +1014,14 @@ public abstract class JRedisSupport implements JRedis {
 		/* ValueRespose */
 		String stringValue = null;
 		try {
-			ValueResponse valResponse = (ValueResponse) this.serviceRequest(Command.RANDOMKEY);
-			stringValue = valResponse.getStringValue();
+			BulkResponse valResponse = (BulkResponse) this.serviceRequest(Command.RANDOMKEY);
+			byte[] bulkData = valResponse.getBulkData();
+			if (null != bulkData) {
+			  stringValue = new String(bulkData);
+			}
 		}
 		catch (ClassCastException e){
-			throw new ProviderException("Expecting a ValueResponse here => " + e.getLocalizedMessage(), e);
+			throw new ProviderException("Expecting a BulkResponse here => " + e.getLocalizedMessage(), e);
 		}
 		return stringValue;
 	}
@@ -1292,7 +1296,7 @@ public abstract class JRedisSupport implements JRedis {
 	}
 
 //	@Override
-	public long zremrangebyrank (String key, double minRank, double maxRank) throws RedisException {
+	public long zremrangebyrank (String key, long minRank, long maxRank) throws RedisException {
 		byte[] keybytes = null;
 		if((keybytes = getKeyBytes(key)) == null) 
 			throw new IllegalArgumentException ("invalid key => ["+key+"]");
@@ -1361,7 +1365,7 @@ public abstract class JRedisSupport implements JRedis {
 
 		List<ZSetEntry> list= null;
 		try {
-			MultiBulkResponse multiBulkResponse = (MultiBulkResponse) this.serviceRequest(Command.ZRANGE$OPTS, keybytes, fromBytes, toBytes, Command.Options.WITHSCORES.bytes);
+			MultiBulkResponse multiBulkResponse = (MultiBulkResponse) this.serviceRequest(Command.ZRANGE$OPTS, keybytes, fromBytes, toBytes, Command.Option.WITHSCORES.bytes);
 			List<byte[]> bulkData = multiBulkResponse.getMultiBulkData();
 			if(null != bulkData){
 				list = new ArrayList<ZSetEntry>(bulkData.size()/2);
@@ -1387,7 +1391,7 @@ public abstract class JRedisSupport implements JRedis {
 
 		List<ZSetEntry> list= null;
 		try {
-			MultiBulkResponse multiBulkResponse = (MultiBulkResponse) this.serviceRequest(Command.ZREVRANGE$OPTS, keybytes, fromBytes, toBytes, Command.Options.WITHSCORES.bytes);
+			MultiBulkResponse multiBulkResponse = (MultiBulkResponse) this.serviceRequest(Command.ZREVRANGE$OPTS, keybytes, fromBytes, toBytes, Command.Option.WITHSCORES.bytes);
 			List<byte[]> bulkData = multiBulkResponse.getMultiBulkData();
 			if(null != bulkData){
 				list = new ArrayList<ZSetEntry>(bulkData.size()/2);
@@ -1403,7 +1407,6 @@ public abstract class JRedisSupport implements JRedis {
 	}
 
 
-	// TODO: NOTIMPLEMENTED:
 //	@Override
 	public Sort sort(final String key) {
 		byte[] keybytes = null;
@@ -1418,8 +1421,8 @@ public abstract class JRedisSupport implements JRedis {
 				
 				List<byte[]> multiBulkData= null;
 				try {
-					MultiBulkResponse MultiBulkResponse = (MultiBulkResponse) client.serviceRequest(Command.SORT, keyBytes, sortSpecBytes);
-					multiBulkData = MultiBulkResponse.getMultiBulkData();
+					MultiBulkResponse multiBulkResponse = (MultiBulkResponse) client.serviceRequest(Command.SORT, keyBytes, sortSpecBytes);
+					multiBulkData = multiBulkResponse.getMultiBulkData();
 				}
 				catch (ClassCastException e){
 					throw new ProviderException("Expecting a MultiBulkResponse here => " + e.getLocalizedMessage(), e);
@@ -1427,8 +1430,27 @@ public abstract class JRedisSupport implements JRedis {
 				return multiBulkData;
 			}
 
+			protected List<byte[]> execSortStore(byte[] keyBytes, byte[] sortSpecBytes) 
+			throws IllegalStateException, RedisException {
+				
+				List<byte[]> multiBulkData= new ArrayList<byte[]>(1);
+				try {
+					ValueResponse valueResp = (ValueResponse) client.serviceRequest(Command.SORT$STORE, keyBytes, sortSpecBytes);
+					long resSize = valueResp.getLongValue();
+					multiBulkData.add(Convert.toBytes(resSize));
+				}
+				catch (ClassCastException e){
+					throw new ProviderException("Expecting a ValueResponse here => " + e.getLocalizedMessage(), e);
+				}
+				return multiBulkData;
+			}
+
 			@Override
 	        protected Future<List<byte[]>> execAsynchSort (byte[] keyBytes, byte[] sortSpecBytes) {
+				throw new IllegalStateException("JRedis does not support asynchronous sort.");
+	        }
+			@Override
+	        protected Future<List<byte[]>> execAsynchSortStore (byte[] keyBytes, byte[] sortSpecBytes) {
 				throw new IllegalStateException("JRedis does not support asynchronous sort.");
 	        }
 		};
@@ -1957,7 +1979,65 @@ public abstract class JRedisSupport implements JRedis {
 		}
 		return value;
 	}
+//	@Override
+	public byte[] echo (byte[] value) throws RedisException {
+		if(value ==null) 
+			throw new IllegalArgumentException ("invalid echo value => ["+value+"]");
 
+		byte[] bulkData= null;
+		try {
+			BulkResponse response = (BulkResponse) this.serviceRequest(Command.ECHO, value);
+			bulkData = response.getBulkData();
+		}
+		catch (ClassCastException e){
+			throw new ProviderException("Expecting a BulkResponse here => " + e.getLocalizedMessage(), e);
+		}
+		return bulkData;
+	}
+//	@Override
+	public byte[] echo(String value) throws RedisException {
+		return echo(DefaultCodec.encode(value));
+	}
+//	@Override
+	public byte[] echo(Number value) throws RedisException {
+		return echo(String.valueOf(value).getBytes());
+	}
+//	@Override
+	public <T extends Serializable> 
+	byte[] echo (T value) throws RedisException
+	{
+		return echo(DefaultCodec.encode(value));
+	}
+	// ------------------------------------------------------------------------
+	// Transactional commands
+	// ------------------------------------------------------------------------
+	/**
+	 * one option is to return a subclass of JRedis (e.g. JRedisCommandSequence)
+	 * and have that interface declare discard and multi.  Benefit is being able
+	 * to associate state with the transaction.
+	 * @throws RedisException
+	 */
+	@Version(major=2, minor=0, release=Release.ALPHA)
+	public JRedis multi() throws RedisException {
+		if(true) throw new ProviderException("NOT IMPLEMENTED");
+		// works
+		this.serviceRequest(Command.MULTI);
+		return this;
+	}
+	/**
+	 * @throws RedisException
+	 */
+	@Version(major=2, minor=0, release=Release.ALPHA)
+	public JRedis discard () throws RedisException {
+		if(true) throw new ProviderException("NOT IMPLEMENTED");
+		// works
+		this.serviceRequest(Command.DISCARD);
+		return this;
+	}
+	// ------------------------------------------------------------------------
+	// utility
+	// ------------------------------------------------------------------------
+	
 	// TODO: integrate using KeyCodec and a CodecManager at client spec and init time.
 	// TODO: (implied) ClientSpec (impls. ConnectionSpec)
 	// this isn't cooked yet -- lets think more about the implications...
@@ -1988,34 +2068,5 @@ public abstract class JRedisSupport implements JRedis {
 		}
 
 		return bytes;
-	}
-//	@Override
-	public byte[] echo (byte[] value) throws RedisException {
-		if(value ==null) 
-			throw new IllegalArgumentException ("invalid echo value => ["+value+"]");
-
-		byte[] bulkData= null;
-		try {
-			BulkResponse response = (BulkResponse) this.serviceRequest(Command.ECHO, value);
-			bulkData = response.getBulkData();
-		}
-		catch (ClassCastException e){
-			throw new ProviderException("Expecting a BulkResponse here => " + e.getLocalizedMessage(), e);
-		}
-		return bulkData;
-	}
-//	@Override
-	public byte[] echo(String value) throws RedisException {
-		return echo(DefaultCodec.encode(value));
-	}
-//	@Override
-	public byte[] echo(Number value) throws RedisException {
-		return echo(String.valueOf(value).getBytes());
-	}
-//	@Override
-	public <T extends Serializable> 
-	byte[] echo (T value) throws RedisException
-	{
-		return echo(DefaultCodec.encode(value));
 	}
 }

@@ -102,7 +102,7 @@ public class JRedisService extends SynchJRedisBase {
 	public JRedisService (ConnectionSpec connectionSpec, int connectionCount) {
 		this.connectionSpec = connectionSpec;
 		// regardless of user spec, service has to assume shared connections
-		connectionSpec.isShared(true);
+		connectionSpec.setConnectionFlag(Connection.Flag.SHARED, true);
 		connCount = connectionCount;
 		
 		initialize();
@@ -116,10 +116,11 @@ public class JRedisService extends SynchJRedisBase {
 		conns = new Connection[connCount];
 		connInUse = new boolean [connCount];
 		Connection conn = null;
-		connectionSpec.isReliable(true);
+		connectionSpec.setConnectionFlag(Connection.Flag.RELIABLE, true);
+		connectionSpec.setConnectionFlag(Connection.Flag.SHARED, true);
 		for(int i=0; i< connCount;i++) {
 			try {
-				conn = Assert.notNull(createSynchConnection(connectionSpec, true, RedisVersion.current_revision), "Connection " + i, ClientRuntimeException.class);
+				conn = Assert.notNull(createSynchConnection(connectionSpec), "Connection " + i, ClientRuntimeException.class);
 				conns[i] = conn;
 				connInUse[i] = false;
 			} 

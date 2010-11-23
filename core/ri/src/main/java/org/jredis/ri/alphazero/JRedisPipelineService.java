@@ -73,7 +73,7 @@ public class JRedisPipelineService extends SynchJRedisBase {
 	 */
 	public JRedisPipelineService (ConnectionSpec connectionSpec) {
 		this.connectionSpec = connectionSpec;
-		connectionSpec.isShared(true);
+		connectionSpec.setConnectionFlag(Connection.Flag.SHARED, true);
 		connection = new SynchPipelineConnection(connectionSpec);
 	}
 	

@@ -49,17 +49,13 @@ public class SynchPipelineConnection extends PipelineConnectionBase {
      * @throws ClientRuntimeException
      */
     public SynchPipelineConnection (ConnectionSpec spec) throws ClientRuntimeException {
-	    super(spec);
+	    super(spec.setModality(Modality.Synchronous));
     }
 
     // ------------------------------------------------------------------------
     // Interface : Connection
     // ------------------------------------------------------------------------
     
-	/* (non-Javadoc) @see org.jredis.ri.alphazero.wip.PipelineConnectionBase#getModality() */
-//    @Override
-    public Modality getModality () { return Modality.Synchronous; }
-
 	/* (non-Javadoc)
      * @see org.jredis.ri.alphazero.connection.ConnectionBase#serviceRequest(org.jredis.protocol.Command, byte[][])
      */

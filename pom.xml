@@ -13,6 +13,7 @@
   <modules>
     <module>core</module>
     <module>examples</module>
+    <module>extensions</module>
   </modules>
   
   <build>
@@ -71,6 +72,17 @@
         <scope>test</scope>
         <classifier>jdk15</classifier>
       </dependency>
+    <!--  logging -->
+	    <dependency>
+	      <groupId>log4j</groupId>
+	      <artifactId>log4j</artifactId>
+	      <version>1.2.12</version>
+	    </dependency>
+	    <dependency>
+	      <groupId>commons-logging</groupId>
+	      <artifactId>commons-logging</artifactId>
+	      <version>1.1.1</version>
+	    </dependency>
     </dependencies>
   </dependencyManagement>
   
@@ -86,14 +98,24 @@
   </licenses>
   <developers>
     <developer>
-      <id>joubin</id>
+      <id>alphazero</id>
       <name>Joubin Houshyar</name>
       <email>alphazero@sensesay.net</email>
-      <url>http://www.sensesay.net</url>
+      <url>http://github.com/alphazero</url>
       <roles>
         <role>ReleaseManager</role>
         <role>Designer</role>
         <role>Developer</role>
+      </roles>
+      <timezone>UTC-5</timezone>
+    </developer>
+    <developer>
+      <id>gv0tch0</id>
+      <name>Nik Kolev</name>
+      <email>nkolev@gmail.com</email>
+      <url>http://github.com/gv0tch0</url>
+      <roles>
+        <role>Contributor</role>
       </roles>
       <timezone>UTC-5</timezone>
     </developer>

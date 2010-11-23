@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -25,16 +25,19 @@ import static org.testng.Assert.assertNotNull;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
 import static org.testng.Assert.fail;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import org.jredis.JRedis;
 import org.jredis.ObjectInfo;
+import org.jredis.Query;
 import org.jredis.RedisException;
 import org.jredis.RedisInfo;
 import org.jredis.RedisType;
 import org.jredis.ZSetEntry;
 import org.jredis.protocol.Command;
 import org.jredis.ri.JRedisTestSuiteBase;
+import org.jredis.ri.RI.Version;
 import org.jredis.ri.alphazero.support.DefaultCodec;
 import org.jredis.ri.alphazero.support.Log;
 import org.testng.annotations.Test;
@@ -43,10 +46,8 @@ import org.testng.annotations.Test;
  * This class is abstract and it is to remain abstract.
  * It provides the comprehensive set of tests of all {@link JRedis} methods.
  */
-
-//TODO: get rid of NG in class name
-
-public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedis>{
+@Version(major=2, minor=0)
+public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase<JRedis>{
 
 	// ------------------------------------------------------------------------
 	// Properties
@@ -213,20 +214,16 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.set(keyToExpire, dataList.get(0));
 			assertTrue (provider.exists(keyToExpire));
 			
-			long expireTime = System.currentTimeMillis() + 500;
 			Log.log("TEST: %s with expire time 1000 msecs in future", Command.EXPIREAT);
-			assertTrue(provider.expireat(keyToExpire, expireTime), "expireat for existing key should be true");
-			assertTrue(!provider.expireat("no-such-key", expireTime), "expireat for non-existant key should be false");
-			assertTrue (provider.exists(keyToExpire));
-			
+			assertTrue(provider.expireat(keyToExpire, System.currentTimeMillis() + 2000), "expireat for existing key should be true");
+      assertTrue (provider.exists(keyToExpire));
+			assertTrue(!provider.expireat("no-such-key", System.currentTimeMillis() + 500), "expireat for non-existant key should be false");
 			
 			// NOTE: IT SIMPLY WON'T WORK WITHOUT GIVING REDIS A CHANCE
 			// could be network latency, or whatever, but the expire command is NOT
 			// that precise, so we need to wait a bit longer
-			
-			Thread.sleep(2000);
+			Thread.sleep(5000);
 			assertTrue (!provider.exists(keyToExpire), "key should have expired by now");
-			
 		} 
 		catch (RedisException e) {
 			fail(cmd + " with password: " + password, e);
@@ -628,10 +625,10 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			}
 			assertEquals(provider.hlen(keys.get(0)), 0, "hash should empty");
 			List<String> hkeys2 = provider.hkeys(keys.get(0));
-			assertEquals( hkeys2, null, "keys list should be null"); // this used to be an empty list - api change says it is null
+			assertEquals(hkeys2, Collections.EMPTY_LIST, "keys list should be empty");
 			
 			List<String> hkeys3 = provider.hkeys("no-such-hash");
-			assertEquals( hkeys3, null, "keys list of non-existent hash should be null.");
+			assertEquals(hkeys3, Collections.EMPTY_LIST, "keys list of non-existent hash should be empty.");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -663,10 +660,10 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			}
 			assertEquals(provider.hlen(keys.get(0)), 0, "hash should empty");
 			List<byte[]> hvals2 = provider.hvals(keys.get(0));
-			assertEquals( hvals2, null, "(api change) keys list should be null"); // this used to return an empty set
+			assertEquals(hvals2, Collections.EMPTY_LIST, "keys list should be empty");
 			
 			List<byte[]> hvals3 = provider.hvals("no-such-hash");
-			assertEquals( hvals3, null, "values list of non-existent hash should be null.");
+			assertEquals(hvals3, Collections.EMPTY_LIST, "values list of non-existent hash should be empty.");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -705,10 +702,10 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 				assertTrue(provider.hdel(keys.get(0), key), "deletion of existing key in hash should be true");
 			
 			Map<String, byte[]> hmap2 = provider.hgetall(keys.get(0));
-			assertEquals( hmap2, null, "hash map should be null"); // used to be empty - api change says it will be null
+			assertEquals(hmap2, Collections.EMPTY_MAP, "hash map should be empty");
 			
 			Map<String, byte[]> hmap3 = provider.hgetall("no-such-hash");
-			assertEquals( hmap3, null, "hgetall for non existent hash should be null");
+			assertEquals(hmap3, Collections.EMPTY_MAP, "hgetall for non existent hash should be empty");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -1842,11 +1839,12 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 	public void testSort() {
 		cmd = Command.SORT.code;
 		Log.log("TEST: %s command", cmd);
+		
+		final String setkey = "set-key";
+		final String listkey = "list-key";
 		try {
 			provider.flushdb();
 			
-			String setkey = "set-key";
-			String listkey = "list-key";
 			for(int i=0; i<MEDIUM_CNT; i++){
 				provider.sadd(setkey, stringList.get(i));
 				provider.lpush(listkey, stringList.get(i));
@@ -1854,11 +1852,34 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 
 			List<String> sorted = null;
 			
-			Log.log("TEST: SORTED LIST ");
-//			sorted = toStr(jredis.sort(listkey).ALPHA().LIMIT(0, 100).BY("*A*").exec());
-			sorted = toStr(provider.sort(listkey).ALPHA().LIMIT(0, 555).DESC().exec());
+			Log.log("TEST: SORTED LIST [t.1]");
+			sorted = toStr(provider.sort(listkey).ALPHA().LIMIT(0, MEDIUM_CNT).DESC().exec());
+			assertEquals(sorted.size(), MEDIUM_CNT, "expecting sort results of size MEDIUM_CNT");
 			for(String s : sorted)
-				System.out.format("%s\n", s);
+				System.out.format("[t.1]: %s\n", s);
+			
+			String destKey = String.format("%s_store", listkey);
+			List<byte[]> ssres = provider.sort(listkey).ALPHA().LIMIT(0, MEDIUM_CNT).DESC().STORE(destKey).exec();
+			assertNotNull(ssres, "result of srot with STORE should be non-null");
+			assertEquals(ssres.size(), 1, "result of sort with STORE should be a list of single entry (the stored list's size)");
+			long sortedListSize = Query.Support.unpackValue(ssres);
+			assertEquals(sortedListSize, MEDIUM_CNT);
+			RedisType type = provider.type(destKey);
+			assertEquals(type, RedisType.list, "dest key of SORT .. STORE should be a LIST");
+			long sslistSize = provider.llen(destKey);
+			assertEquals(sslistSize, sortedListSize, "result of SORT ... STORE and LLEN of destkey list should be same");
+			
+			Log.log("TEST: SORTED LIST [t.2]");
+			sorted = toStr(provider.sort(listkey).ALPHA().LIMIT(10, 9).DESC().exec());
+			assertEquals(sorted.size(), 9, "expecting sort results of size 9");
+			for(String s : sorted)
+				System.out.format("[t.2]: %s\n", s);
+			
+			Log.log("TEST: SORTED LIST [t.3]");
+			sorted = toStr(provider.sort(listkey).ALPHA().LIMIT(MEDIUM_CNT-1, 1).DESC().exec());
+			assertEquals(sorted.size(), 1, "expecting sort results of size 1");
+			for(String s : sorted)
+				System.out.format("[t.3]: %s\n", s);
 			
 			Log.log("TEST: SORTED SET ");
 //			sorted = toStr(jredis.sort(setkey).ALPHA().LIMIT(0, 100).BY("*BB*").exec());
@@ -1868,6 +1889,26 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+		
+		// force errors
+		
+		// count can't be zero
+		Runnable invalidLimitSpec = new Runnable() {
+			public void run() {
+				try { provider.sort(listkey).ALPHA().LIMIT(0, 0).DESC().exec(); }
+                catch (Throwable t) { throw new RuntimeException ("", t); }
+			}
+		};
+		assertDidRaiseRuntimeError(invalidLimitSpec, RuntimeException.class);
+		
+		// LIMIT from must be positive, {0...n}
+		Runnable invalidLimitSpec2 = new Runnable() {
+			public void run() {
+				try { provider.sort(listkey).ALPHA().LIMIT(-1, 1).DESC().exec(); }
+                catch (Throwable t) { throw new RuntimeException ("", t); }
+			}
+		};
+		assertDidRaiseRuntimeError(invalidLimitSpec2, RuntimeException.class);
 	}
 
 	
@@ -2096,6 +2137,7 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			assertEquals(remCnt, SMALL_CNT+1, "should have specific number of rem cnt for zremrangebyrank");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+		catch (RuntimeException rte) { fail(cmd + " RUNTIME-ERROR => " + rte.getLocalizedMessage(), rte); }
 	}
 	
 	@Test
@@ -2296,10 +2338,9 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			// empty set
 			provider.sadd(keys.get(2), dataList.get(0));
 			provider.srem(keys.get(2), dataList.get(0));
-			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
+			assertEquals(provider.scard(keys.get(2)), 0, "set cardinality for an empty set should be 0");
 			members = provider.smembers(keys.get(2));
-			assertNull(members, "smembers should return a null"); // this used to be an empty set - api change
-//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			assertEquals(members, Collections.EMPTY_LIST,"smembers should return an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -2325,8 +2366,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), stringList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = toStr(provider.smembers(keys.get(2)));
-			assertNull(members, "smembers should return null for set that was fully emptied"); // api change.
-//			assertTrue(members.size() == 0, "smembers should have returned an empty list"); // api change - now it is null
+			//assertNull(members, "smembers should return null for set that was fully emptied"); // api change.
+			assertEquals(members.size(), 0, "smembers should have returned an empty list"); // api change - now it is null
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -2352,8 +2393,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), longList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = toLong (provider.smembers(keys.get(2)));
-			assertNull(members, "smembers should return null"); // api change (also toLong changed to handle the null results).
-//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			//assertNull(members, "smembers should return null"); // api change (also toLong changed to handle the null results).
+			assertEquals(members.size(), 0, "smembers should have returned an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 
@@ -2379,8 +2420,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 			provider.srem(keys.get(2), objectList.get(0));
 			assertTrue(provider.scard(keys.get(2)) == 0, "set should be empty now");
 			members = decode (provider.smembers(keys.get(2)));
-			assertNull(members, "smembers should return null"); // API change
-//			assertTrue(members.size() == 0, "smembers should have returned an empty list");
+			//assertNull(members, "smembers should return null"); // API change
+			assertEquals(members.size(), 0, "smembers should have returned an empty list");
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
@@ -2863,11 +2904,10 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		Log.log("TEST: %s command", cmd);
 		try {
 			provider.flushdb();
-			
-			assertTrue (provider.dbsize() == 0);
+			assertTrue(provider.dbsize() == 0);
 			
 			String iamempty = provider.randomkey();
-			assertEquals(0, iamempty.length(), "randomkey of an empty db should be a zero length result");
+			assertNull(iamempty, "randomkey of an empty db should be null, but instead it was: " + iamempty);
 			
 			for (int i=0; i<MEDIUM_CNT; i++)
 				provider.set(keys.get(i), dataList.get(i));
@@ -3024,6 +3064,8 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 		} 
 		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
 	}
+	
+	
 //	/**
 //	 * Test method for {@link org.jredis.ri.alphazero.JRedisSupport#shutdown()}.
 //	 */
@@ -3032,9 +3074,38 @@ public abstract class JRedisProviderTestsBase extends JRedisTestSuiteBase <JRedi
 //		fail("Not yet implemented");
 //	}
 //
-
-
-
+	// ========================================================================
+	// Test MULTI/EXEC/DISCARD *BASICS*
+	// ========================================================================
+	/**
+	 * Test the basics of multi/exec/discard
+	 * TODO: requires supports() in JRedis.
+	 */
+//	@Test
+//	public void testMultiDiscardBasics() {
+//		cmd = Command.MULTI + " | " + Command.DISCARD + " | basics";
+//		Log.log("TEST: %s command", cmd);
+//		
+//		try {
+//			provider.flushdb();
+//		} 
+//		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+//		
+//		try {
+//			provider.multi();
+//			provider.discard();
+//		} 
+//		catch (RedisException e) { fail(cmd + " ERROR => " + e.getLocalizedMessage(), e); }
+//		
+//		boolean didRaiseEx;
+//		didRaiseEx = false;
+//		try {
+//			provider.discard();
+//		}
+//		catch (IllegalArgumentException e) {didRaiseEx = true;}
+//		catch (Throwable whatsthis) { fail ("unexpected exception raised", whatsthis);}
+//		if(!didRaiseEx){ fail ("Expected exception not raised."); }
+//	}
 	// ========================================================================
 	// Test Properties
 	// ========================================================================

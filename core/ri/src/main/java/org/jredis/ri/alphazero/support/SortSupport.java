@@ -1,5 +1,5 @@
 /*
- *   Copyright 2009 Joubin Houshyar
+ *   Copyright 2009-2010 Joubin Houshyar
  * 
  *   Licensed under the Apache License, Version 2.0 (the "License");
  *   you may not use this file except in compliance with the License.
@@ -18,7 +18,6 @@ package org.jredis.ri.alphazero.support;
 
 import java.util.List;
 import java.util.concurrent.Future;
-
 import org.jredis.ClientRuntimeException;
 import org.jredis.RedisException;
 import org.jredis.Sort;
@@ -26,6 +25,7 @@ import org.jredis.protocol.Command;
 
 
 public abstract class SortSupport implements Sort {
+	protected volatile boolean stores = false;
 	protected final String key;
 	protected final byte[] keyBytes;
 	protected SortSupport (String key, byte[] validatedKeyBytes){
@@ -33,22 +33,31 @@ public abstract class SortSupport implements Sort {
 		this.key = key;
 		this.keyBytes = validatedKeyBytes;
 	}
-	static final String WSPAD = " ";
-	String alphaSpec = "";
-	String sortSpec = "";
-	String  getSpec = "";
-	String  bySpec = "";
-	String  limitSpec = "";
+	private static final String NO_OP_SPEC = "";
+	private static final String PAD = " ";
+	private String alphaSpec = NO_OP_SPEC;
+	private String sortSpec = NO_OP_SPEC;
+	private String getSpec = NO_OP_SPEC;
+	private String bySpec = NO_OP_SPEC;
+	private String limitSpec = NO_OP_SPEC;
+	private String storeSpec = NO_OP_SPEC;
 	
-	public Sort ALPHA() { alphaSpec = Command.Options.ALPHA.name() + WSPAD; return this;}
-	public Sort DESC() { sortSpec = Command.Options.DESC.name() + WSPAD; return this;}
-	public Sort BY(String pattern) { bySpec = Command.Options.BY.name() + WSPAD + pattern; return this; }
-	public Sort GET(String pattern) { getSpec = Command.Options.GET.name() + WSPAD + pattern + " "; return this; }
-	public Sort LIMIT(long from, long to) {
-		// TODO: validate here
-		Assert.inRange(to, 0, Long.MAX_VALUE, "from in LIMIT clause", ClientRuntimeException.class);
-		Assert.inRange(to, from, Long.MAX_VALUE, "to in LIMIT clause (when from=" + from + ")", ClientRuntimeException.class);
-		limitSpec = Command.Options.LIMIT.name() + WSPAD + from + " " + to;
+	public Sort ALPHA() {  alphaSpec = String.format("%s%s", Command.Option.ALPHA.name(), PAD); return this; }
+	public Sort DESC() { sortSpec = String.format("%s%s", Command.Option.DESC.name(), PAD); return this;}
+	public Sort BY(String pattern) { bySpec = String.format("%s %s%s", Command.Option.BY.name(), pattern, PAD); return this; }
+	public Sort GET(String pattern) { getSpec = String.format("%s %s%s", Command.Option.GET.name(), pattern, PAD); return this; }
+	public Sort LIMIT(long from, long count) {
+		if(from < 0) throw new ClientRuntimeException("from in LIMIT clause: " + from);
+		if(count <= 0) throw new ClientRuntimeException("count in LIMIT clause: " + from);
+		limitSpec = String.format("%s %d %d%s", Command.Option.LIMIT.name(), from, count, PAD);
+		return this;
+	}
+	/** Store the sort results in another key */
+	public Sort STORE (String destKey) {
+		Assert.notNull(destKey, "deskKey is null", ClientRuntimeException.class);
+		// TODO: check for whitespaces
+		storeSpec = String.format("%s %s%s", Command.Option.STORE, destKey, PAD);
+		stores = true;
 		return this;
 	}
 	private final byte[] getSortSpec() {
@@ -57,15 +66,30 @@ public abstract class SortSupport implements Sort {
 			.append(limitSpec)
 			.append(getSpec)
 			.append(sortSpec)
-			.append(alphaSpec);
-		return spec.toString().getBytes();
+			.append(alphaSpec)
+			.append(storeSpec);
+		return spec.toString().trim().getBytes();
 	}
 	public List<byte[]> exec() throws IllegalStateException, RedisException {
-		return execSort (keyBytes, getSortSpec());
+		System.out.format("sort spec: [%S]\n", new String(getSortSpec()));
+		List<byte[]> res = null;
+		if(!stores)
+			res = execSort (keyBytes, getSortSpec());
+		else 
+			res = execSortStore(keyBytes, getSortSpec());
+		return res;
 	}
 	public Future<List<byte[]>> execAsynch() {
-		return execAsynchSort (keyBytes, getSortSpec());
+		System.out.format("sort spec: [%S]\n", new String(getSortSpec()));
+		Future<List<byte[]>>  res = null;
+		if(!stores)
+			res = execAsynchSort (keyBytes, getSortSpec());
+		else 
+			res = execAsynchSortStore(keyBytes, getSortSpec());
+		return res;
 	}
 	protected abstract List<byte[]> execSort (byte[] keyBytes, byte[] sortSpecBytes) throws IllegalStateException, RedisException;
+	protected abstract List<byte[]> execSortStore (byte[] keyBytes, byte[] sortSpecBytes) throws IllegalStateException, RedisException;
 	protected abstract Future<List<byte[]>> execAsynchSort (byte[] keyBytes, byte[] sortSpecBytes);
+	protected abstract Future<List<byte[]>> execAsynchSortStore (byte[] keyBytes, byte[] sortSpecBytes);
 }
